@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Production/Build outputs
+dist/
+backend/dist/
+frontend/dist/
+dist-ssr/
+*.local
+
+# Secrets and environment configurations
+.env
+backend/.env
+frontend/.env
+.env.production
+.env.development
+
+# Logs and debug files
+logs/
+backend/logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Test files and sandbox/profiles
+chrome-test-profile/
+backend/chrome-test-profile/
+.sixth/
+scratch_nojs_google.html
+backend/scratch_nojs_google.html
+
+# IDE/OS configurations
+.vscode/
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

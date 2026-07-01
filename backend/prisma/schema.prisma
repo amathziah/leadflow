@@ -1,0 +1,92 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LeadStatus {
+  NEW
+  SCAVENGER_RUNNING
+  AI_ANALYZING
+  OUTREACH_READY
+  OUTREACH_SENT
+  DISQUALIFIED
+}
+
+enum WorkflowStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum LogLevel {
+  INFO
+  WARN
+  ERROR
+}
+
+model Lead {
+  id              String      @id @default(uuid())
+  companyName     String
+  website         String?
+  contactName     String?
+  email           String?
+  industry        String?
+  leadScore       Int?
+  status          LeadStatus  @default(NEW)
+  outreachMessage String?
+  contactRole     String?
+  linkedinUrl     String?
+  linkedinMessage String?
+  metadata        Json?       // To store flexible enrichment data or reasoning
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  workflowId      String?
+  workflow        Workflow?   @relation(fields: [workflowId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([email])
+  @@map("leads")
+}
+
+model Workflow {
+  id        String         @id @default(uuid())
+  query     String
+  status    WorkflowStatus @default(PENDING)
+  error     String?
+  summary   String?        // AI Synthesized Research Summary with citations
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  // Relations
+  leads     Lead[]
+  logs      ExecutionLog[]
+
+  @@map("workflows")
+}
+
+model ExecutionLog {
+  id         String     @id @default(uuid())
+  step       String
+  message    String
+  level      LogLevel   @default(INFO)
+  metadata   Json?      // Stores screenshots URLs, DOM elements metadata, or scrape payloads
+  timestamp  DateTime   @default(now())
+
+  // Relations
+  workflowId String
+  workflow   Workflow   @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+  @@index([timestamp])
+  @@map("execution_logs")
+}

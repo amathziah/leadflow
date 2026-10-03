@@ -113,6 +113,7 @@ Tier 2 initially reported a perfect 100% grounding and 0% fluff — which was wr
 
 Two fixes: `generateOutreach` now reports `generatedBy: 'llm' | 'fallback'` so a degraded run cannot pass as healthy, and the eval reports fallback rate separately and scores quality on model output only. Model IDs moved behind env-overridable aliases (`gemini-flash-latest`) so a retirement cannot silently gut the pipeline again.
 
+Written up in full, including the three reasons it stayed invisible: **[docs/POSTMORTEM-silent-model-outage.md](docs/POSTMORTEM-silent-model-outage.md)**.
 ---
 
 ## Getting started

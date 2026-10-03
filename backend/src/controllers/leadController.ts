@@ -4,6 +4,8 @@ import { NotFoundError, BadRequestError } from '../utils/errors.js';
 import { LeadStatus } from '@prisma/client';
 import logger from '../utils/logger.js';
 
+
+
 export const getLeads = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { status, industry, search, page = '1', limit = '10' } = req.query;
@@ -45,16 +47,16 @@ export const getLeads = async (req: Request, res: Response, next: NextFunction):
       ];
     }
 
-    // Execute queries in parallel
-    const [leads, totalCount] = await Promise.all([
-      prisma.lead.findMany({
-        where,
-        skip,
-        take: parsedLimit,
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.lead.count({ where }),
-    ]);
+
+
+    const totalCount = await prisma.lead.count({ where });
+
+    const leads = await prisma.lead.findMany({
+      where,
+      skip,
+      take: parsedLimit,
+      orderBy: { createdAt: 'desc' },
+    });
 
     res.status(200).json({
       success: true,

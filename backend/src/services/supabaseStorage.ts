@@ -4,21 +4,36 @@ import { env } from '../config/env.js';
 import logger from '../utils/logger.js';
 
 class SupabaseStorageService {
-  private supabase: SupabaseClient;
+  private client: SupabaseClient | null = null;
 
-  constructor() {
-    const key = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY;
-    this.supabase = createClient(env.SUPABASE_URL, key, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-      realtime: {
-        transport: ws as any,
-      },
+  /**
+   * Supabase is an optional remote store for screenshots and DOM snapshots.
+   * When it is not configured, callers fall back to the local
+   * `logs/screenshots` directory that the server already serves statically.
+   */
+  public isConfigured(): boolean {
+    return Boolean(env.SUPABASE_URL && (env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY));
+  }
 
-    });
-    logger.info('📦 Supabase client initialized for storage services');
+  /** Built on first use so an unconfigured deployment still boots. */
+  private get supabase(): SupabaseClient {
+    if (!this.isConfigured()) {
+      throw new Error('Supabase storage is not configured; using local disk instead.');
+    }
+    if (!this.client) {
+      const key = (env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY) as string;
+      this.client = createClient(env.SUPABASE_URL as string, key, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+        realtime: {
+          transport: ws as any,
+        },
+      });
+      logger.info('📦 Supabase client initialized for storage services');
+    }
+    return this.client;
   }
 
 

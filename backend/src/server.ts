@@ -6,28 +6,31 @@ import logger from './utils/logger.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { connectDatabase, disconnectDatabase } from './db/prisma.js';
-import supabaseStorage from './services/supabaseStorage.js';
+import path from 'path';
 import apiRouter from './routes/index.js';
 
 const app = express();
 
-// 1. Security & Body Parsing Middleware
-app.use(helmet());
+// 1. Security & Body Parsing
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({
-  origin: env.NODE_ENV === 'development' ? '*' : false, // In production, replace with dashboard host
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  origin: env.NODE_ENV === 'development' ? '*' : false,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 2. Request Telemetry Middleware
+// Serve local visual telemetry screenshots
+app.use('/screenshots', express.static(path.join(process.cwd(), 'logs', 'screenshots')));
+
+// 2. Request Telemetry
 app.use(requestLogger);
 
-// 3. API Routers
+// 3. API Routes
 app.use('/api', apiRouter);
 
-// Root level health shortcut
+// Health shortcut
 app.get('/health', (_req, res) => {
   res.status(200).json({
     success: true,
@@ -37,42 +40,33 @@ app.get('/health', (_req, res) => {
   });
 });
 
-// 4. Fallback 404 Route handler
+// 4. 404
 app.use((_req, res) => {
-  res.status(404).json({
-    success: false,
-    error: {
-      message: 'API route not found',
-      statusCode: 404,
-    },
-  });
+  res.status(404).json({ success: false, error: { message: 'API route not found', statusCode: 404 } });
 });
 
-// 5. Global Error Handler Middleware
+// 5. Global Error Handler
 app.use(errorHandler);
 
-// Server lifecycle manager
 let server: any;
 
 const bootstrap = async () => {
   try {
-    logger.info('Starting LeadFlow AI Backend Engine...');
-    
-    // Connect database
+    logger.info('🚀 Starting LeadFlow AI Backend...');
     await connectDatabase();
 
-    // Verify storage buckets asynchronously (won't block server startup)
-    supabaseStorage.ensureBucketExists(env.SUPABASE_SCREENSHOTS_BUCKET, false).catch((err) => {
-      logger.warn(`Screenshot bucket initialization check finished with alert: ${err.message}`);
-    });
-    supabaseStorage.ensureBucketExists(env.SUPABASE_LOGS_BUCKET, false).catch((err) => {
-      logger.warn(`Logs bucket initialization check finished with alert: ${err.message}`);
-    });
+    // Initialize Default Context & Seed Profile if needed
+    const { getOrCreateDefaultContext } = await import('./services/seedService.js');
+    await getOrCreateDefaultContext();
 
-    // Start Express listener
+    // Start Asynchronous Queue Worker
+    const { QueueService } = await import('./services/queueService.js');
+    QueueService.startWorker();
+
     const port = env.PORT;
     server = app.listen(port, () => {
       logger.info(`⚡ [Server] Running in ${env.NODE_ENV} mode on port ${port}`);
+      logger.info(`🧠 LeadFlow AI Intelligence Engine ready on http://localhost:${port}`);
     });
   } catch (error) {
     logger.error('💥 Critical error during server bootstrap:', error);
@@ -80,58 +74,27 @@ const bootstrap = async () => {
   }
 };
 
-// Handle uncaught telemetry events
 process.on('uncaughtException', (error) => {
-  try {
-    logger.error('CRITICAL: Uncaught Exception detected:', error);
-  } catch (e) {
-    // Prevent crash loop if writing to stdout/stderr fails
-  }
+  logger.error('CRITICAL: Uncaught Exception:', error);
   gracefulShutdown(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  try {
-    logger.error('CRITICAL: Unhandled Promise Rejection detected:', { reason, promise });
-  } catch (e) {
-    // Prevent crash loop if writing to stdout/stderr fails
-  }
+process.on('unhandledRejection', (reason) => {
+  logger.error('CRITICAL: Unhandled Rejection:', { reason });
   gracefulShutdown(1);
 });
 
-// Graceful exit coordinator
 const gracefulShutdown = async (exitCode = 0) => {
-  try {
-    logger.info('🔌 Initiating graceful server termination...');
-  } catch (e) {}
-  
-  if (server) {
-    server.close(() => {
-      try {
-        logger.info('HTTP server listener closed.');
-      } catch (e) {}
-    });
-  }
-
-  // Disconnect database client
+  logger.info('🔌 Initiating graceful shutdown...');
+  const { QueueService } = await import('./services/queueService.js');
+  QueueService.stopWorker();
+  if (server) server.close(() => logger.info('HTTP server closed.'));
   await disconnectDatabase();
-  
-  try {
-    logger.info('Graceful shutdown procedure complete.');
-  } catch (e) {}
+  logger.info('Shutdown complete.');
   process.exit(exitCode);
 };
 
-// POSIX Signals
-process.on('SIGTERM', () => {
-  logger.info('Received SIGTERM signal.');
-  gracefulShutdown(0);
-});
+process.on('SIGTERM', () => { logger.info('SIGTERM received.'); gracefulShutdown(0); });
+process.on('SIGINT', () => { logger.info('SIGINT received.'); gracefulShutdown(0); });
 
-process.on('SIGINT', () => {
-  logger.info('Received SIGINT signal.');
-  gracefulShutdown(0);
-});
-
-// Initialize server
 bootstrap();

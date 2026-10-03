@@ -20,8 +20,7 @@ export const connectDatabase = async (): Promise<void> => {
     await prisma.$connect();
     logger.info('🚀 Database connected successfully through Prisma ORM');
   } catch (error: any) {
-    logger.error('❌ Failed to connect to the database:', error);
-    process.exit(1);
+    logger.warn(`⚠️ Database connection warning (offline or network issue): ${error.message}`);
   }
 };
 

@@ -10,13 +10,115 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// -------------------------------------------------------------
+// ENUMS
+// -------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  SALES_MANAGER
+  ACCOUNT_EXECUTIVE
+  SDR
+}
+
+enum CompanyStatus {
+  CANDIDATE
+  QUALIFIED
+  DISQUALIFIED
+  NURTURING
+  CUSTOMER
+}
+
 enum LeadStatus {
   NEW
+  CANDIDATE
+  QUALIFIED
+  DISQUALIFIED
+  RESEARCHING
+  OUTREACH_READY
+  OUTREACH_PENDING_APPROVAL
+  OUTREACH_SENT
+  RESPONDED
+  CONVERTED
+  LOST
   SCAVENGER_RUNNING
   AI_ANALYZING
-  OUTREACH_READY
-  OUTREACH_SENT
-  DISQUALIFIED
+}
+
+enum SignalType {
+  HIRING_GROWTH
+  FUNDING_ROUND
+  GEO_EXPANSION
+  LEADERSHIP_CHANGE
+  TECH_ADOPTION
+  MARKET_MOVE
+  PRODUCT_LAUNCH
+  PARTNERSHIP
+  AWARD
+}
+
+enum OutreachState {
+  DRAFT
+  REVIEW
+  APPROVED
+  SENT
+  REJECTED
+  FAILED
+}
+
+enum OutreachChannel {
+  EMAIL
+  LINKEDIN
+}
+
+enum ResponseIntent {
+  INTERESTED
+  FOLLOW_UP
+  NOT_INTERESTED
+  UNSUBSCRIBE
+}
+
+enum JobStatus {
+  WAITING
+  ACTIVE
+  COMPLETED
+  FAILED
+  DLQ
+}
+
+enum ConversationStage {
+  NEW_LEAD
+  CONNECTED
+  ENGAGED
+  OBJECTION_HANDLING
+  MEETING_REQUESTED
+  MEETING_BOOKED
+  CLOSED_CONVERTED
+  UNRESPONSIVE
+}
+
+enum MessageSender {
+  LEAD
+  AGENT
+  USER
+}
+
+enum ChatSentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+  OBJECTION
+  QUESTION
+}
+
+enum ChatIntent {
+  INQUIRY
+  PRICING
+  DEMO_REQUEST
+  OBJECTION
+  SCHEDULE_CALL
+  NOT_INTERESTED
+  GENERAL
 }
 
 enum WorkflowStatus {
@@ -32,61 +134,457 @@ enum LogLevel {
   ERROR
 }
 
-model Lead {
-  id              String      @id @default(uuid())
-  companyName     String
-  website         String?
-  contactName     String?
-  email           String?
-  industry        String?
-  leadScore       Int?
-  status          LeadStatus  @default(NEW)
-  outreachMessage String?
-  contactRole     String?
-  linkedinUrl     String?
-  linkedinMessage String?
-  metadata        Json?       // To store flexible enrichment data or reasoning
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  
-  // Relations
-  workflowId      String?
-  workflow        Workflow?   @relation(fields: [workflowId], references: [id], onDelete: SetNull)
+// -------------------------------------------------------------
+// MULTI-TENANCY & CORE ENTITIES
+// -------------------------------------------------------------
 
+model Organization {
+  id          String       @id @default(uuid())
+  name        String
+  domain      String?
+  plan        String       @default("ENTERPRISE")
+  settings    Json?        // Org-level configurations, AI model choices, scoring weights
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  users       User[]
+  icpProfiles IcpProfile[]
+  companies   Company[]
+  leads       Lead[]
+  campaigns   Campaign[]
+  auditLogs   AuditLog[]
+  jobs        JobQueueItem[]
+
+  @@map("organizations")
+}
+
+model User {
+  id          String       @id @default(uuid())
+  orgId       String
+  email       String       @unique
+  name        String
+  role        UserRole     @default(SDR)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  assignedLeads Lead[]     @relation("AssignedSDR")
+  reviewedMessages OutreachMessage[] @relation("MessageReviewer")
+  auditLogs   AuditLog[]
+
+  @@index([orgId])
+  @@map("users")
+}
+
+model IcpProfile {
+  id                   String       @id @default(uuid())
+  orgId                String
+  name                 String
+  description          String?
+  targetIndustries     String[]     // e.g. ["B2B SaaS", "FinTech", "Healthcare IT"]
+  minEmployees         Int          @default(50)
+  maxEmployees         Int          @default(500)
+  targetCountries      String[]     // e.g. ["US", "UK", "India", "Canada"]
+  targetRoles          String[]     // e.g. ["CFO", "VP Finance", "Founder", "Head of Finance"]
+  requiredTechnologies String[]     // e.g. ["Stripe", "Salesforce", "NetSuite"]
+  targetSignals        String[]     // e.g. ["HIRING_GROWTH", "FUNDING_ROUND"]
+  minScoreThreshold    Int          @default(70)
+  isActive             Boolean      @default(true)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  organization         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("icp_profiles")
+}
+
+// -------------------------------------------------------------
+// COMPANY & ENRICHMENT INTELLIGENCE
+// -------------------------------------------------------------
+
+model Company {
+  id              String             @id @default(uuid())
+  orgId           String
+  domain          String             // e.g. "acme.com"
+  name            String
+  website         String?
+  industry        String?
+  employeeCount   Int?
+  country         String?
+  city            String?
+  technologies    String[]           @default([])
+  fundingStage    String?            // Seed, Series A, Series B, Bootstrapped, Public
+  totalRaisedUSD  Float?
+  status          CompanyStatus      @default(CANDIDATE)
+  disqualificationReason String?
+  lastEnrichedAt  DateTime?
+  metadata        Json?              // Flexible schema for additional signals/tags
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  organization    Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  leads           Lead[]
+  enrichments     EnrichmentRecord[]
+  signals         CompanySignal[]
+  researchDossiers ResearchDossier[]
+  leadScores      LeadScore[]
+  memoryItems     LeadMemoryItem[]
+
+  @@unique([orgId, domain])
+  @@index([orgId])
   @@index([status])
-  @@index([email])
+  @@map("companies")
+}
+
+model EnrichmentRecord {
+  id          String   @id @default(uuid())
+  companyId   String
+  field       String   // "employeeCount", "technologies", "funding", "industry"
+  value       Json     // Raw value payload
+  source      String   // "WEBSITE_META", "LINKEDIN", "CRUNCHBASE", "CLEARBIT", "BUILTWITH"
+  confidence  Float    @default(1.0) // 0.00 to 1.00
+  fetchedAt   DateTime @default(now())
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("enrichment_records")
+}
+
+model CompanySignal {
+  id          String     @id @default(uuid())
+  companyId   String
+  type        SignalType
+  headline    String     // e.g. "Hiring Finance Manager & Expansion to London"
+  detail      String?
+  source      String     // "Careers Page", "Press Release", "TechCrunch"
+  sourceUrl   String?
+  confidence  Float      @default(0.9) // 0.00 to 1.00
+  detectedAt  DateTime   @default(now())
+
+  company     Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([type])
+  @@map("company_signals")
+}
+
+// -------------------------------------------------------------
+// LEAD & SCORING
+// -------------------------------------------------------------
+
+model Lead {
+  id                  String            @id @default(uuid())
+  orgId               String?
+  companyId           String?
+  fullName            String?
+  firstName           String?
+  lastName            String?
+  email               String?
+  role                String?           // e.g. "CFO", "VP Finance"
+  seniority           String?           // "C_LEVEL", "VP", "DIRECTOR", "MANAGER"
+  linkedinUrl         String?
+  status              LeadStatus        @default(CANDIDATE)
+  disqualificationReason String?
+  assignedUserId      String?
+  leadScore           Int?              // Current cached Total Score (0-100)
+  conversationStage   ConversationStage @default(NEW_LEAD)
+  autoReplyEnabled    Boolean           @default(true)
+  lastContactedAt     DateTime?
+  lastChatAt          DateTime?
+  conversationSummary String?
+  outreachMessage     String?
+  contactName         String?
+  companyName         String            // Denormalized for rapid listing
+  website             String?
+  industry            String?
+  contactRole         String?
+  linkedinMessage     String?
+  fundingStage        String?
+  foundingYear        Int?
+  competitiveMoats    String?
+  metadata            Json?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  organization        Organization?     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  company             Company?          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assignedUser        User?             @relation("AssignedSDR", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  scores              LeadScore[]
+  outreachMessages    OutreachMessage[]
+  inboundResponses    InboundResponse[]
+  memoryItems         LeadMemoryItem[]
+  
+  // Backward compatibility with previous schema
+  workflowId          String?
+  workflow            Workflow?         @relation(fields: [workflowId], references: [id], onDelete: SetNull)
+  chatMessages        ChatMessage[]
+
+  @@index([orgId])
+  @@index([companyId])
+  @@index([status])
+  @@index([leadScore])
   @@map("leads")
 }
 
-model Workflow {
-  id        String         @id @default(uuid())
-  query     String
-  status    WorkflowStatus @default(PENDING)
-  error     String?
-  summary   String?        // AI Synthesized Research Summary with citations
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+model LeadScore {
+  id               String   @id @default(uuid())
+  leadId           String
+  companyId        String
+  totalScore       Int      // 0 to 100
+  industryFitScore Int      // Max 25
+  sizeFitScore     Int      // Max 20
+  growthFitScore   Int      // Max 20
+  techFitScore     Int      // Max 15
+  roleFitScore     Int      // Max 10
+  engagementScore  Int      // Max 10
+  formulaVersion   String   @default("v1.0.0")
+  explanation      Json     // Array of items { factor, points, max, reason }
+  scoredAt         DateTime @default(now())
 
-  // Relations
-  leads     Lead[]
-  logs      ExecutionLog[]
+  lead             Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([companyId])
+  @@index([scoredAt])
+  @@map("lead_scores")
+}
+
+// -------------------------------------------------------------
+// AI RESEARCH AGENT & DOSSIERS
+// -------------------------------------------------------------
+
+model ResearchDossier {
+  id                    String   @id @default(uuid())
+  companyId             String
+  summary               String
+  painPoints            Json     // Array of { area, description, evidence }
+  strategicSignals      Json     // Array of { signal, relevance, confidence }
+  qualificationReasons  Json     // Array of string bullet points
+  confidenceScore       Float    // 0.00 to 1.00
+  rawToolOutputs        Json?    // Raw tool calls made: search_company, get_signals, etc.
+  agentVersion          String   @default("v1.0.0")
+  generatedAt           DateTime @default(now())
+
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("research_dossiers")
+}
+
+// -------------------------------------------------------------
+// OUTREACH, CAMPAIGNS & HUMAN REVIEW
+// -------------------------------------------------------------
+
+model Campaign {
+  id          String            @id @default(uuid())
+  orgId       String
+  name        String
+  description String?
+  status      String            @default("ACTIVE") // ACTIVE, PAUSED, ARCHIVED
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  organization Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  messages    OutreachMessage[]
+
+  @@index([orgId])
+  @@map("campaigns")
+}
+
+model OutreachMessage {
+  id              String          @id @default(uuid())
+  leadId          String
+  campaignId      String?
+  channel         OutreachChannel @default(EMAIL)
+  subject         String?
+  body            String
+  state           OutreachState   @default(DRAFT)
+  usedSignals     Json?           // Signal IDs and snippets grounded in this draft
+  reviewerUserId  String?
+  reviewerNotes   String?
+  approvedAt      DateTime?
+  sentAt          DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  lead            Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaign        Campaign?       @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  reviewer        User?           @relation("MessageReviewer", fields: [reviewerUserId], references: [id], onDelete: SetNull)
+  responses       InboundResponse[]
+
+  @@index([leadId])
+  @@index([state])
+  @@map("outreach_messages")
+}
+
+model InboundResponse {
+  id             String          @id @default(uuid())
+  messageId      String?
+  leadId         String
+  channel        OutreachChannel @default(EMAIL)
+  rawContent     String
+  classification ResponseIntent  @default(FOLLOW_UP)
+  confidence     Float           @default(0.9)
+  reasoning      String?
+  receivedAt     DateTime        @default(now())
+
+  message        OutreachMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  lead           Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([classification])
+  @@map("inbound_responses")
+}
+
+// -------------------------------------------------------------
+// LEAD MEMORY & LONGITUDINAL AUDIT
+// -------------------------------------------------------------
+
+model LeadMemoryItem {
+  id               String   @id @default(uuid())
+  leadId           String
+  companyId        String
+  eventType        String   // "SCORE_CHANGE", "NEW_SIGNAL", "OUTREACH_SENT", "RESPONSE_RECEIVED"
+  deltaDescription String   // e.g. "Score increased from 72 to 91 due to Series B funding and finance hiring"
+  previousScore    Int?
+  newScore         Int?
+  metadata         Json?
+  timestamp        DateTime @default(now())
+
+  lead             Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([companyId])
+  @@map("lead_memory_items")
+}
+
+// -------------------------------------------------------------
+// ASYNCHRONOUS WORKFLOWS & RELIABILITY
+// -------------------------------------------------------------
+
+model JobQueueItem {
+  id             String    @id @default(uuid())
+  orgId          String
+  queueName      String    // "lead-processing", "enrichment", "scoring", "outreach"
+  jobType        String    // "PROCESS_LEAD", "ENRICH_COMPANY", "RUN_RESEARCH", "EVALUATE_SCORE"
+  payload        Json
+  status         JobStatus @default(WAITING)
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3)
+  lastError      String?
+  idempotencyKey String?   @unique
+  scheduledAt    DateTime  @default(now())
+  processedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([status])
+  @@index([queueName])
+  @@map("job_queue_items")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  orgId      String
+  userId     String?
+  action     String   // "LEAD_IMPORTED", "ICP_UPDATED", "OUTREACH_APPROVED", "MESSAGE_SENT"
+  entityType String   // "LEAD", "COMPANY", "OUTREACH_MESSAGE", "ICP_PROFILE"
+  entityId   String
+  metadata   Json?
+  ipAddress  String?
+  timestamp  DateTime @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+// -------------------------------------------------------------
+// BACKWARD COMPATIBLE TELEMETRY & WORKFLOWS
+// -------------------------------------------------------------
+
+model ChatMessage {
+  id          String        @id @default(uuid())
+  leadId      String
+  sender      MessageSender
+  content     String
+  platform    String        @default("SYSTEM")
+  sentiment   ChatSentiment @default(NEUTRAL)
+  intent      ChatIntent    @default(GENERAL)
+  metadata    Json?
+  timestamp   DateTime      @default(now())
+
+  lead        Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([timestamp])
+  @@map("chat_messages")
+}
+
+model Workflow {
+  id               String         @id @default(uuid())
+  query            String
+  targetVertical   String?
+  depth            String         @default("DEEP")
+  status           WorkflowStatus @default(PENDING)
+  error            String?
+  summary          String?
+  executiveDossier String?
+  plan             Json?
+  confidenceScore  Float?
+  stats            Json?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  leads            Lead[]
+  logs             ExecutionLog[]
+  sources          EvidenceSource[]
 
   @@map("workflows")
 }
 
 model ExecutionLog {
-  id         String     @id @default(uuid())
-  step       String
-  message    String
-  level      LogLevel   @default(INFO)
-  metadata   Json?      // Stores screenshots URLs, DOM elements metadata, or scrape payloads
-  timestamp  DateTime   @default(now())
+  id            String     @id @default(uuid())
+  step          String
+  message       String
+  level         LogLevel   @default(INFO)
+  thought       String?
+  toolName      String?
+  screenshotUrl String?
+  metadata      Json?
+  timestamp     DateTime   @default(now())
 
-  // Relations
-  workflowId String
-  workflow   Workflow   @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  workflowId    String
+  workflow      Workflow   @relation(fields: [workflowId], references: [id], onDelete: Cascade)
 
   @@index([workflowId])
   @@index([timestamp])
   @@map("execution_logs")
+}
+
+model EvidenceSource {
+  id               String   @id @default(uuid())
+  workflowId       String
+  url              String
+  title            String?
+  domain           String
+  snippet          String?
+  reliabilityScore Float?
+  verifiedFacts    Json?
+  timestamp        DateTime @default(now())
+
+  workflow         Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+  @@map("evidence_sources")
 }

@@ -1,5 +1,6 @@
 import { chromium, Browser, Page, BrowserContext } from 'playwright';
-import { applyStealth } from './stealth.js';
+import { configurePage } from './pageSetup.js';
+import { SetOfMarkGrounder, InteractiveElement } from './somGrounding.js';
 import supabaseStorage from '../services/supabaseStorage.js';
 import logger from '../utils/logger.js';
 import { env } from '../config/env.js';
@@ -87,7 +88,7 @@ class BrowserService {
   }
 
   /**
-   * Creates a sandboxed browser context and a clean page loaded with stealth configurations
+   * Creates an isolated browser context and a configured page
    */
   public async createPage(): Promise<{ context: BrowserContext; page: Page }> {
     if (!this.browser) {
@@ -101,8 +102,8 @@ class BrowserService {
 
       const page = await context.newPage();
 
-      // Inject stealth scripts
-      await applyStealth(page);
+      // Apply baseline page configuration
+      await configurePage(page);
 
       // Standard timeouts
       page.setDefaultTimeout(30000);
@@ -129,8 +130,8 @@ class BrowserService {
 
     const page = await context.newPage();
     
-    // Inject stealth scripts
-    await applyStealth(page);
+    // Apply baseline page configuration
+    await configurePage(page);
 
     // Standard timeouts
     page.setDefaultTimeout(30000);
@@ -159,15 +160,17 @@ class BrowserService {
         logger.warn(`Could not save local screenshot copy: ${localWriteError.message}`);
       }
 
-      const storagePath = await supabaseStorage.uploadScreenshot(workflowId, fileName, buffer);
-
-      // Attempt to retrieve a signed URL or fallback to public URL format
       try {
-        const signedUrl = await supabaseStorage.getSignedUrl(env.SUPABASE_SCREENSHOTS_BUCKET, storagePath, 86400); // 24 hours
-        return signedUrl;
-      } catch (signError) {
-        // Fallback to standard URL layout if bucket is public or signing fails
-        return `${env.SUPABASE_URL}/storage/v1/object/public/${env.SUPABASE_SCREENSHOTS_BUCKET}/${storagePath}`;
+        const storagePath = await supabaseStorage.uploadScreenshot(workflowId, fileName, buffer);
+        try {
+          const signedUrl = await supabaseStorage.getSignedUrl(env.SUPABASE_SCREENSHOTS_BUCKET, storagePath, 86400);
+          return signedUrl;
+        } catch {
+          return `${env.SUPABASE_URL}/storage/v1/object/public/${env.SUPABASE_SCREENSHOTS_BUCKET}/${storagePath}`;
+        }
+      } catch (uploadError) {
+        // Fallback to local server endpoint so images always display in dashboard
+        return `/screenshots/${fileName}`;
       }
     } catch (error: any) {
       logger.warn(`Could not capture visual telemetry: ${error.message}`);
@@ -255,39 +258,14 @@ class BrowserService {
     }
   }
 
-  /**
-   * Simulates human-like clicking by moving the mouse to a randomized offset of the element.
-   */
-  private async humanClick(page: Page, selector: string): Promise<void> {
-    try {
-      const element = page.locator(selector).first();
-      await element.scrollIntoViewIfNeeded();
-      await this.humanDelay(200, 400);
-      
-      const box = await element.boundingBox();
-      if (box) {
-        const x = box.x + box.width / 2 + (Math.random() * 10 - 5);
-        const y = box.y + box.height / 2 + (Math.random() * 10 - 5);
-        await this.humanMove(page, x, y);
-        await this.humanDelay(100, 250);
-        await page.mouse.click(x, y);
-      } else {
-        await element.click();
-      }
-      await this.humanDelay(400, 800);
-    } catch (err) {
-      await page.click(selector).catch(() => {});
-    }
-  }
-
   public async searchGoogle(
     query: string,
     workflowId: string,
     onLogUpdate?: (message: string, meta?: any) => Promise<void>
   ): Promise<SearchResult[]> {
-    logger.info('Performing search directly via Playwright Stealth browser scraper...');
+    logger.info('Performing search via Playwright browser scraper...');
     if (onLogUpdate) {
-      await onLogUpdate('Performing search directly via Playwright Stealth browser scraper...');
+      await onLogUpdate('Performing search via Playwright browser scraper...');
     }
 
     const engines: Array<{ name: string; run: (page: Page) => Promise<SearchResult[]> }> = [
@@ -327,58 +305,6 @@ class BrowserService {
     }
 
     throw new Error('All search providers (browser-scraping engines) returned zero results or were blocked');
-  }
-
-  /**
-   * Fast Bing lookup for LinkedIn profile URL of a prospect decision-maker
-   */
-  public async findLinkedInProfile(
-    companyName: string,
-    contactName: string,
-    workflowId: string
-  ): Promise<string | null> {
-    const query = `${companyName} ${contactName} LinkedIn`;
-    logger.info(`🔍 Performing LinkedIn profile lookup on Bing: "${query}"`);
-
-    const { context, page } = await this.createPage();
-    try {
-      await page.goto('https://www.bing.com', { waitUntil: 'domcontentloaded' });
-      await this.humanDelay(1000, 2000);
-
-      const searchInputSelector = 'input[name="q"], textarea[name="q"]';
-      await page.waitForSelector(searchInputSelector, { state: 'visible', timeout: 10000 });
-      await this.humanType(page, searchInputSelector, query);
-      await page.keyboard.press('Enter');
-      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-      await this.humanDelay(1500, 3000);
-
-      await page.waitForSelector('li.b_algo', { state: 'attached', timeout: 5000 }).catch(() => null);
-      await this.humanScroll(page, 300);
-
-      const resultElements = page.locator('li.b_algo');
-      const count = await resultElements.count();
-
-      for (let i = 0; i < count; i++) {
-        const item = resultElements.nth(i);
-        const titleAnchor = item.locator('h2 a');
-        if ((await titleAnchor.count()) === 0) continue;
-
-        const href = (await titleAnchor.first().getAttribute('href', { timeout: 2000 }).catch(() => '')) || '';
-        const url = this.decodeBingUrl(href);
-        if (url && url.includes('linkedin.com/in/')) {
-          logger.info(`✅ Discovered LinkedIn profile URL: ${url}`);
-          return url;
-        }
-      }
-      logger.warn(`⚠️ No LinkedIn profile link found on Bing for query: "${query}"`);
-      return null;
-    } catch (err: any) {
-      logger.warn(`❌ Bing LinkedIn lookup failed: ${err.message}`);
-      return null;
-    } finally {
-      await page.close().catch(() => {});
-      await context.close().catch(() => {});
-    }
   }
 
   /**
@@ -774,14 +700,14 @@ class BrowserService {
         await onLogUpdate('Cloudflare verification challenge detected. Starting natural bypass routine...');
       }
 
-      // 1. Wait a bit. With our stealth config, passive checks often pass automatically within 5 seconds.
+      // 1. Wait a bit. Passive checks often clear on their own within a few seconds.
       for (let i = 0; i < 3; i++) {
         await this.humanDelay(1500, 2500);
         const currentTitle = await page.title().catch(() => '');
         if (!currentTitle.includes('Just a moment...') && !currentTitle.includes('Attention Required')) {
           logger.info('✅ Cloudflare passive check passed automatically!');
           if (onLogUpdate) {
-            await onLogUpdate('Cloudflare check passed automatically via stealth profile.');
+            await onLogUpdate('Cloudflare check cleared without intervention.');
           }
           return true;
         }
@@ -1141,157 +1067,118 @@ class BrowserService {
     }
   }
   /**
-   * Navigates to a target LinkedIn profile page, extracts visible profile data,
-   * leveraging the active user session cookie to bypass login barriers.
+   * Deep Research Tool: Navigates to a target URL, applies Set-of-Mark visual grounding,
+   * captures a visual telemetry snapshot, discovers key subpages (/pricing, /docs, /team),
+   * and extracts clean visible text.
    */
-  public async scrapeLinkedInProfile(
-    profileUrl: string,
+  public async navigateAndGroundWithSoM(
+    url: string,
     workflowId: string,
     onLogUpdate?: (message: string, meta?: any) => Promise<void>
-  ): Promise<{ name: string; headline: string; aboutText: string; experienceExcerpt: string; error?: string }> {
+  ): Promise<{
+    title: string;
+    bodyText: string;
+    screenshotUrl: string | null;
+    marks: InteractiveElement[];
+    subpages: string[];
+    metadata: Record<string, string>;
+    error?: string;
+  }> {
     try {
-      logger.info(`Scraping LinkedIn profile: ${profileUrl}`);
+      logger.info(`🌐 Deep Research Agent navigating to: ${url}`);
       if (onLogUpdate) {
-        await onLogUpdate(`Navigating to prospect LinkedIn profile: ${profileUrl}`);
+        await onLogUpdate(`Navigating and applying Set-of-Mark visual grounding: ${url}`);
       }
 
       const { context, page } = await this.createPage();
       try {
-        // Go to LinkedIn profile
-        await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-        await this.humanDelay(2000, 3000); // Wait for profile elements to render
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await this.humanDelay(800, 1500);
 
-        // Solve any Cloudflare challenges
         await this.handleCloudflareChallenge(page, onLogUpdate);
+        await this.handleCookieBanners(page, onLogUpdate);
 
-        // Check if we hit a login wall (e.g. redirect to /login or authwall)
-        const currentUrl = page.url();
-        if (
-          currentUrl.includes('linkedin.com/signup') ||
-          currentUrl.includes('linkedin.com/login') ||
-          currentUrl.includes('linkedin.com/authwall') ||
-          currentUrl.includes('linkedin.com/checkpoint')
-        ) {
-          logger.warn(`⚠️ Hit LinkedIn login barrier. Active session cookies might not be present or logged in. URL: ${currentUrl}`);
-          throw new Error('LinkedIn session is not authenticated. Please log in to LinkedIn on your active Chrome instance.');
-        }
+        // Inject Set-of-Mark visual tags onto interactive elements
+        const marks = await SetOfMarkGrounder.injectSetOfMarks(page);
 
-        // Take telemetry screenshot of the profile page
-        let profileName = 'profile';
-        try {
-          const split = profileUrl.split('/in/');
-          if (split.length > 1) {
-            profileName = split[1].replace(/[^a-z0-9]/gi, '_');
-          }
-        } catch {}
-        
-        const screenshot = await this.captureAndUploadScreenshot(
+        // Capture visual snapshot with SoM badges
+        const screenshotUrl = await this.captureAndUploadScreenshot(
           page,
           workflowId,
-          `linkedin_${profileName}`
+          `som_${url.replace(/[^a-z0-9]/gi, '_').slice(0, 35)}`
         );
-        if (onLogUpdate && screenshot) {
-          await onLogUpdate('Inspected LinkedIn profile page view, captured browser view.', { screenshotUrl: screenshot });
-        }
 
-        // Extract profile information from DOM
-        const profileData = await page.evaluate(() => {
-          // Robust selector lists for different page layouts (logged-in/public)
-          const nameSelectors = [
-            '.text-heading-xlarge',
-            'h1.text-heading-xlarge',
-            '.pv-top-card-layout__title',
-            '.top-card-layout__title',
-            '.topcard__title',
-            'h1'
-          ];
-          let name = '';
-          for (const sel of nameSelectors) {
-            const el = document.querySelector(sel);
-            const txt = el?.textContent?.trim() || '';
-            if (txt && !txt.includes('Join LinkedIn') && !txt.includes('Sign in') && !txt.includes('Welcome back')) {
-              name = txt;
-              break;
-            }
-          }
+        // Remove overlay badges before text extraction
+        await SetOfMarkGrounder.removeSetOfMarks(page);
 
-          const headlineSelectors = [
-            '.text-body-medium',
-            '.pv-top-card-layout__headline',
-            '.top-card-layout__headline',
-            '.topcard__headline',
-            'h2'
-          ];
-          let headline = '';
-          for (const sel of headlineSelectors) {
-            const el = document.querySelector(sel);
-            const txt = el?.textContent?.trim() || '';
-            if (txt && !txt.includes('Sign in') && !txt.includes('Welcome back') && !txt.includes('Security verification')) {
-              headline = txt;
-              break;
-            }
-          }
-          
-          const aboutSelectors = [
-            '#about ~ .display-flex span',
-            '.pv-about-section .pv-about__summary-text',
-            'section.summary-section p',
-            '.summary-section .summary-text',
-            '.summary-text'
-          ];
-          let aboutText = '';
-          for (const sel of aboutSelectors) {
-            const el = document.querySelector(sel);
-            const txt = el?.textContent?.trim() || '';
-            if (txt) {
-              aboutText = txt;
-              break;
-            }
-          }
-          
-          const expSelectors = [
-            '.experience-section li',
-            '#experience ~ .display-flex li',
-            'section.experience-section li',
-            '.experience-item',
-            '.experience-group-header',
-            'li.experience-item'
-          ];
-          const experienceElements = Array.from(document.querySelectorAll(expSelectors.join(', ')));
-          const experienceExcerpt = experienceElements.slice(0, 3).map(el => {
-            const text = (el as HTMLElement).innerText || '';
-            return text.replace(/\s+/g, ' ').trim();
-          }).filter(Boolean).join(' | ');
+        const title = (await page.title()) || '';
 
-          return {
-            name,
-            headline,
-            aboutText,
-            experienceExcerpt
-          };
+        // Extract metadata tags
+        const metaDesc = await page.locator('meta[name="description"]').getAttribute('content').catch(() => null);
+        const metadata: Record<string, string> = {
+          description: metaDesc || '',
+          url,
+        };
+
+        // Discover relevant deep research subpages (e.g. /pricing, /about, /team, /docs, /company)
+        const subpages = await page.evaluate((currentOrigin) => {
+          const links = Array.from(document.querySelectorAll('a[href]'));
+          const discovered: string[] = [];
+          const keywords = ['about', 'team', 'pricing', 'docs', 'product', 'company', 'customers', 'case-study', 'research'];
+
+          for (const a of links) {
+            try {
+              const href = (a as HTMLAnchorElement).href;
+              const linkUrl = new URL(href);
+              if (linkUrl.origin === currentOrigin && !discovered.includes(href)) {
+                const lower = href.toLowerCase();
+                if (keywords.some((k) => lower.includes(k))) {
+                  discovered.push(href);
+                }
+              }
+            } catch {}
+          }
+          return discovered.slice(0, 8);
+        }, new URL(url).origin).catch(() => []);
+
+        // Extract clean body text
+        const bodyText = await page.evaluate(() => {
+          const clone = document.body.cloneNode(true) as HTMLElement;
+          const killSelectors = ['script', 'style', 'noscript', 'svg', 'iframe', 'footer'];
+          killSelectors.forEach((sel) => clone.querySelectorAll(sel).forEach((el) => el.remove()));
+          return (clone.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 15000);
         });
 
-        logger.info(`Successfully scraped LinkedIn profile for ${profileData.name || 'prospect'}`);
         if (onLogUpdate) {
-          await onLogUpdate(`Scraped LinkedIn profile: "${profileData.name}" | Headline: "${profileData.headline || 'None'}"`);
+          await onLogUpdate(`Visual grounding complete. Extracted ${marks.length} interactive elements, ${subpages.length} subpages, ${bodyText.length} text chars.`, {
+            screenshotUrl,
+            marksCount: marks.length,
+            subpages,
+          });
         }
 
-        return profileData;
+        return {
+          title,
+          bodyText,
+          screenshotUrl,
+          marks,
+          subpages,
+          metadata,
+        };
       } finally {
-        await page.close();
-        await context.close();
+        await page.close().catch(() => {});
+        await context.close().catch(() => {});
       }
     } catch (err: any) {
-      logger.warn(`Failed to scrape LinkedIn profile ${profileUrl}: ${err.message}`);
-      if (onLogUpdate) {
-        await onLogUpdate(`Warning: Could not scrape LinkedIn profile: ${err.message}`);
-      }
+      logger.warn(`SoM navigation error on ${url}: ${err.message}`);
       return {
-        name: '',
-        headline: '',
-        aboutText: '',
-        experienceExcerpt: '',
-        error: err.message
+        title: '',
+        bodyText: '',
+        screenshotUrl: null,
+        marks: [],
+        subpages: [],
+        metadata: {},
+        error: err.message,
       };
     }
   }

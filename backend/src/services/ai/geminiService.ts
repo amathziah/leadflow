@@ -1,5 +1,5 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { env } from '../../config/env.js';
+import { createLlmClient, MODELS } from './llmClient.js';
 import logger from '../../utils/logger.js';
 
 interface LeadScoreResult {
@@ -12,10 +12,8 @@ interface LeadScoreResult {
 }
 
 class GeminiService {
-  private genAI: GoogleGenerativeAI;
 
   constructor() {
-    this.genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
     logger.info('🧠 Gemini AI Service initialized with Google SDK configurations');
   }
 
@@ -31,8 +29,8 @@ class GeminiService {
       logger.info(`Evaluating company profile matching target query: "${query}" using gemini-2.5-pro...`);
 
       // Initialize modern pro model
-      const model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.5-pro',
+      const model = createLlmClient().getGenerativeModel({
+        model: MODELS.deep,
       });
 
       const systemPrompt = `You are a staff-level Sales Intelligence Agent. Your goal is to review the scraped text content from a company's website and evaluate how closely they align with the user's lead search query: "${query}".
@@ -124,8 +122,8 @@ ${scrapedText}
     try {
       logger.info(`Generating personalized LinkedIn connection invite note for ${contactName} (${contactRole}) using gemini-2.5-flash...`);
 
-      const model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.5-flash',
+      const model = createLlmClient().getGenerativeModel({
+        model: MODELS.fast,
       });
 
       const prompt = `You are a professional outreach copywriter. Draft a personalized, peer-to-peer LinkedIn connection request note for a prospect.
@@ -186,8 +184,8 @@ Draft the note below:`;
     try {
       logger.info('Generating personalized cold sales outreach copy using gemini-2.5-flash...');
 
-      const model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.5-flash',
+      const model = createLlmClient().getGenerativeModel({
+        model: MODELS.fast,
       });
 
       const targetContact = contactName || 'Founder';
@@ -241,8 +239,8 @@ Write the personalized cold outreach email below, including a clear Subject line
     try {
       logger.info(`Synthesizing research summary for query: "${query}" using gemini-2.5-pro...`);
 
-      const model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.5-pro',
+      const model = createLlmClient().getGenerativeModel({
+        model: MODELS.deep,
       });
 
       // Format sources list for prompt

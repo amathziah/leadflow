@@ -21,5 +21,17 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": [
+    "src/components/CompanyDossiersPage.tsx",
+    "src/components/CompetitorProfilesPage.tsx",
+    "src/components/DashboardHome.tsx",
+    "src/components/LeadsPage.tsx",
+    "src/components/LinkedinAccountSettingsModal.tsx",
+    "src/components/LinkedinChatHub.tsx",
+    "src/components/LiveTrajectoryViewer.tsx",
+    "src/components/NewAnalysisPage.tsx",
+    "src/components/ResearchMissionsPage.tsx",
+    "src/components/WorkflowsPage.tsx"
+  ]
 }

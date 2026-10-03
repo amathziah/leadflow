@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend — typecheck & evals
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+        working-directory: backend
+
+      # Prisma Client must exist before tsc can resolve its generated types.
+      - run: npx prisma generate
+        working-directory: backend
+
+      - run: npm run typecheck
+        working-directory: backend
+
+      # Tier 1 of the suite is a pure function: no database, no API key.
+      # Tier 2 reports itself as skipped here rather than inventing numbers.
+      - run: npm run evals
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://unused:unused@localhost:5432/unused
+
+  frontend:
+    name: Frontend — typecheck & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+        working-directory: frontend
+
+      - run: npm run build
+        working-directory: frontend

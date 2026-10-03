@@ -1,0 +1,23 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: leadflow-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: leadflow
+      POSTGRES_PASSWORD: leadflow
+      POSTGRES_DB: leadflow
+    ports:
+      - '5432:5432'
+    volumes:
+      - leadflow-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Lets `docker compose up --wait` block until Postgres accepts queries,
+      # so `prisma db push` immediately afterwards cannot race the container.
+      test: ['CMD-SHELL', 'pg_isready -U leadflow -d leadflow']
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  leadflow-pgdata:

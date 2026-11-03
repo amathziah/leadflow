@@ -179,7 +179,13 @@ Would a brief 15-minute conversation next week be worthwhile?`;
         companyId: company.id,
         eventType: 'OUTREACH_DRAFTED',
         deltaDescription: `Generated personalized ${channel} draft grounded in ${usedSignals.length} verified signals.`,
-        metadata: { messageId: message.id, usedSignals },
+        metadata: {
+          messageId: message.id,
+          usedSignals,
+          generatedBy,
+          ...(fallbackReason ? { fallbackReason } : {}),
+          model: MODELS.fast,
+        },
       },
     });
 

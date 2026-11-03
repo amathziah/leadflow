@@ -302,6 +302,27 @@ export class QualificationService {
       },
     });
 
+    try {
+      await prisma.leadMemoryItem.create({
+        data: {
+          leadId: lead.id,
+          companyId: lead.company.id,
+          eventType: 'QUALIFICATION_EVALUATED',
+          deltaDescription: `ICP qualification ${result.isQualified ? 'passed' : 'failed'} against ${icp.name}.`,
+          metadata: {
+            icpId: icp.id,
+            icpName: icp.name,
+            isQualified: result.isQualified,
+            checks: result.checks,
+            reasons: result.reasons,
+            disqualificationReasons: result.disqualificationReasons,
+          } as any,
+        },
+      });
+    } catch (error: any) {
+      logger.warn(`Could not persist qualification trace for lead ${lead.id}: ${error.message}`);
+    }
+
     logger.info(`⚖️ Evaluated Lead ${lead.fullName} (${lead.companyName}): ${newStatus}. Passed checks: ${result.reasons.length}`);
     return { lead: updatedLead, qualification: result };
   }

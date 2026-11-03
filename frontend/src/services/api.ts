@@ -40,6 +40,7 @@ export interface CompanySignalItem {
   headline: string;
   detail: string | null;
   source: string;
+  sourceUrl?: string | null;
   confidence: number;
   detectedAt: string;
 }
@@ -51,6 +52,36 @@ export interface ResearchDossierItem {
   qualificationReasons: string[];
   confidenceScore: number;
   generatedAt?: string;
+  generatedBy?: 'llm' | 'fallback';
+  fallbackReason?: string;
+  model?: string;
+  agentVersion?: string;
+  toolOutputs?: any;
+}
+
+export interface AgentStageTraceItem {
+  id: string;
+  timestamp: string;
+  description: string;
+  metadata: {
+    runId?: string;
+    stage?: string;
+    status?: 'RUNNING' | 'COMPLETED' | 'FAILED';
+    durationMs?: number;
+    error?: string;
+    [key: string]: any;
+  };
+}
+
+export interface AgentPipelineRunItem {
+  id: string;
+  status: string;
+  attempts: number;
+  maxAttempts: number;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  processedAt: string | null;
 }
 
 export interface ConfigStatus {
@@ -66,8 +97,15 @@ export interface OutreachMessageItem {
   body: string;
   state: 'DRAFT' | 'REVIEW' | 'APPROVED' | 'SENT' | 'REJECTED';
   usedSignals: any;
+  createdAt?: string;
   approvedAt?: string | null;
   sentAt?: string | null;
+  generation?: {
+    generatedBy?: 'llm' | 'fallback';
+    fallbackReason?: string;
+    model?: string;
+    usedSignals?: any[];
+  } | null;
   lead?: {
     id: string;
     fullName: string;
@@ -127,12 +165,25 @@ export interface Lead360Data {
   score: {
     totalScore: number | null;
     formulaVersion: string;
+    scoredAt?: string;
     explanation: LeadScoreItem[];
   };
   signals: CompanySignalItem[];
   research: ResearchDossierItem | null;
   outreach: OutreachMessageItem[];
   history: any[];
+  agentTrace: {
+    events: AgentStageTraceItem[];
+    runs: AgentPipelineRunItem[];
+    qualification: { timestamp: string; metadata: any } | null;
+    enrichment: Array<{
+      field: string;
+      value: any;
+      source: string;
+      confidence: number;
+      createdAt: string;
+    }>;
+  };
 }
 
 export interface ManagerDashboardData {
@@ -425,47 +476,5 @@ export const api = {
     } catch (err: any) {
       return { ok: false, error: err.message };
     }
-  },
-
-  // ==========================================================================
-  // RESEARCH MISSIONS (deep research agent) & COMPETITORS
-  // Every method below hits a real endpoint. Errors propagate so the UI can
-  // surface them, rather than being swallowed into empty "success" responses.
-  // ==========================================================================
-
-  async getAnalyses() {
-    return request<any>('/analyses');
-  },
-
-  async getAnalysisById(id: string) {
-    return request<any>(`/analyses/${encodeURIComponent(id)}`);
-  },
-
-  async getAnalysisLogs(id: string) {
-    return request<any>(`/analyses/${encodeURIComponent(id)}/logs`);
-  },
-
-  async triggerAnalysis(payload: any) {
-    return request<any>('/analyses', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-  },
-
-  async deleteAnalysis(id: string) {
-    return request<any>(`/analyses/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  },
-
-  async getCompetitors() {
-    return request<any>('/competitors');
-  },
-
-  async getCompetitorById(id: string) {
-    return request<any>(`/competitors/${encodeURIComponent(id)}`);
-  },
-
-  async deleteCompetitor(id: string) {
-    return request<any>(`/competitors/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 };

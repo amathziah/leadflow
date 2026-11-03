@@ -1,6 +1,4 @@
 import { Router } from 'express';
-import competitorRoutes from './competitorRoutes.js';
-import analysisRoutes from './analysisRoutes.js';
 import leadflowRoutes from './leadflowRoutes.js';
 
 const router = Router();
@@ -19,9 +17,4 @@ router.get('/health', (_req, res) => {
 router.use('/leadflow', leadflowRoutes);
 router.use('/', leadflowRoutes); // Direct access for /leads, /icp, /analytics, etc.
 
-// Legacy / telemetry routes
-router.use('/competitors', competitorRoutes);
-router.use('/analyses', analysisRoutes);
-
 export default router;
-

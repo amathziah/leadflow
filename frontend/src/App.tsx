@@ -6,132 +6,217 @@ import {
   Target,
   BarChart3,
   TrendingUp,
-  Server,
+  CheckCircle2,
+  AlertCircle,
+  ChevronRight,
 } from 'lucide-react';
-import LeadPipelineView from './components/LeadPipelineView';
-import OutreachReviewCenter from './components/OutreachReviewCenter';
-import ReplyTriageView from './components/ReplyTriageView';
-import IcpManagerView from './components/IcpManagerView';
-import ManagerAnalyticsView from './components/ManagerAnalyticsView';
-import './App.css';
+import LeadPipelinePage from './pages/LeadPipelinePage';
+import OutreachReviewPage from './pages/OutreachReviewPage';
+import ReplyTriagePage from './pages/ReplyTriagePage';
+import IcpSettingsPage from './pages/IcpSettingsPage';
+import SalesAnalyticsPage from './pages/SalesAnalyticsPage';
 
 type Tab = 'pipeline' | 'outreach' | 'responses' | 'icp' | 'analytics';
 
-function App() {
+const NAV_SECTIONS = [
+  {
+    label: 'Workspace',
+    items: [
+      {
+        id: 'pipeline' as Tab,
+        label: 'Lead Intelligence',
+        icon: Building2,
+        description: 'Pipeline & 360° view',
+      },
+      {
+        id: 'outreach' as Tab,
+        label: 'Human Review',
+        icon: ShieldAlert,
+        badge: 'Gate',
+        badgeClass: 'nav-badge-amber',
+        description: 'Approve outreach drafts',
+      },
+      {
+        id: 'responses' as Tab,
+        label: 'Reply Triage',
+        icon: MessageSquareQuote,
+        description: 'Inbound response analysis',
+      },
+    ],
+  },
+  {
+    label: 'Configuration',
+    items: [
+      {
+        id: 'icp' as Tab,
+        label: 'ICP Studio',
+        icon: Target,
+        description: 'Qualification rules',
+      },
+      {
+        id: 'analytics' as Tab,
+        label: 'Analytics',
+        icon: BarChart3,
+        description: 'Manager dashboard',
+      },
+    ],
+  },
+];
+
+const TAB_META: Record<Tab, { title: string }> = {
+  pipeline:  { title: 'Lead intelligence' },
+  outreach:  { title: 'Outreach review' },
+  responses: { title: 'Reply triage' },
+  icp:       { title: 'ICP settings' },
+  analytics: { title: 'Sales analytics' },
+};
+
+export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('pipeline');
-  const [serverOnline, setServerOnline] = useState<boolean>(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [serverOnline, setServerOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const checkHealth = async () => {
+    const check = async () => {
       try {
-        const res = await fetch('http://localhost:4000/health');
-        setServerOnline(res.ok);
+        const r = await fetch('http://localhost:4000/health');
+        setServerOnline(r.ok);
       } catch {
         setServerOnline(false);
       }
     };
-    checkHealth();
-    const interval = setInterval(checkHealth, 15000);
-    return () => clearInterval(interval);
+    check();
+    const iv = setInterval(check, 15_000);
+    return () => clearInterval(iv);
   }, []);
 
-  const navItems: { id: Tab; label: string; icon: any; badge?: string }[] = [
-    { id: 'pipeline', label: 'Lead Intelligence', icon: Building2 },
-    { id: 'outreach', label: 'Human Review', icon: ShieldAlert, badge: 'Gate' },
-    { id: 'responses', label: 'Reply Triage', icon: MessageSquareQuote },
-    { id: 'icp', label: 'ICP Studio', icon: Target },
-    { id: 'analytics', label: 'Manager Analytics', icon: BarChart3 },
-  ];
+  const meta = TAB_META[activeTab];
 
   return (
-    <div className="app-container">
-      {/* Sidebar Navigation */}
+    <div className={`app-root ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+      {/* ── Sidebar ── */}
       <aside className="sidebar">
-        <div className="logo-container">
-          <div className="logo-icon">
-            <TrendingUp size={22} color="#ffffff" />
+        {/* Logo */}
+        <button
+          className="sidebar-logo sidebar-logo-toggle"
+          type="button"
+          onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-expanded={!sidebarCollapsed}
+          aria-controls="primary-navigation"
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          <div className="sidebar-logo-icon">
+            <TrendingUp size={16} strokeWidth={2.5} />
           </div>
-          <div>
-            <span className="logo-text">LeadFlow AI</span>
-            <span
-              style={{
-                fontSize: '10px',
-                color: 'var(--text-muted)',
-                display: 'block',
-                fontWeight: '600',
-                letterSpacing: '0.06em',
-              }}
-            >
-              INTELLIGENCE PLATFORM
+          <div className="sidebar-logo-text">
+            <span className="sidebar-logo-name">
+              LeadFlow<span style={{ color: 'var(--brand)' }}>AI</span>
             </span>
+            <span className="sidebar-logo-tag">Intelligence Engine</span>
           </div>
-        </div>
+        </button>
 
-        <ul className="nav-links">
-          {navItems.map(({ id, label, icon: Icon, badge }) => (
-            <li key={id}>
-              <div
-                id={`nav-${id}`}
-                className={`nav-item ${activeTab === id ? 'active' : ''}`}
-                onClick={() => setActiveTab(id)}
-              >
-                <Icon className="icon" />
-                <span>{label}</span>
-                {badge && (
-                  <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-amber-950/80 text-amber-400 border border-amber-800/80 font-bold">
-                    {badge}
-                  </span>
-                )}
-              </div>
-            </li>
+        {/* Nav */}
+        <nav className="sidebar-nav" id="primary-navigation" aria-label="Primary navigation">
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.label}>
+              <p className="nav-section-label">{section.label}</p>
+              {section.items.map(({ id, label, icon: Icon, badge, badgeClass }) => (
+                <button
+                  key={id}
+                  className={`nav-item ${activeTab === id ? 'active' : ''}`}
+                  onClick={() => setActiveTab(id)}
+                  type="button"
+                  aria-label={label}
+                  aria-current={activeTab === id ? 'page' : undefined}
+                  title={label}
+                >
+                  <Icon className="nav-icon" />
+                  <span className="nav-label">{label}</span>
+                  {badge && (
+                    <span className={`nav-badge ${badgeClass || ''}`}>{badge}</span>
+                  )}
+                </button>
+              ))}
+            </div>
           ))}
-        </ul>
+        </nav>
 
-        {/* Sidebar Footer with Engine Telemetry Status */}
+        {/* Engine status */}
         <div className="sidebar-footer">
           <div
-            className="status-indicator"
-            style={{
-              background: serverOnline ? 'var(--accent-emerald)' : 'var(--accent-rose)',
-              boxShadow: serverOnline ? '0 0 10px rgba(16,185,129,0.6)' : 'none',
-            }}
-          />
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span className="status-text" style={{ color: serverOnline ? '#fff' : 'var(--text-muted)' }}>
-              {serverOnline ? 'Engine Active' : 'Offline'}
-            </span>
+            className="engine-card"
+            title={serverOnline ? 'Engine Online · Deterministic + Gemini' : 'Engine status'}
+          >
             <span
-              style={{
-                fontSize: '10px',
-                color: 'var(--text-muted)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '3px',
-              }}
-            >
-              <Server size={10} /> Deterministic + Gemini
-            </span>
+              className={`engine-dot ${
+                serverOnline === null ? '' : serverOnline ? 'online' : 'offline'
+              }`}
+              style={serverOnline === null ? { background: 'var(--text-secondary)' } : undefined}
+            />
+            <div className="engine-info">
+              <span className="engine-status">
+                {serverOnline === null
+                  ? 'Checking...'
+                  : serverOnline
+                  ? 'Engine Online'
+                  : 'Engine Offline'}
+              </span>
+              <span className="engine-sub">
+                {serverOnline
+                  ? 'Deterministic + Gemini'
+                  : 'Start backend on :4000'}
+              </span>
+            </div>
+            {serverOnline !== null && (
+              serverOnline
+                ? <CheckCircle2 size={13} style={{ color: 'var(--success)', flexShrink: 0 }} />
+                : <AlertCircle  size={13} style={{ color: 'var(--danger)',  flexShrink: 0 }} />
+            )}
           </div>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="main-content">
-        <div className="bg-glow-1" />
-        <div className="bg-glow-2" />
+      {/* ── Main area ── */}
+      <div className="main-area">
+        {/* Topbar */}
+        <header className="topbar">
+          <div>
+            {/* Breadcrumb */}
+            <div className="topbar-breadcrumb">
+              <span>LeadFlow AI</span>
+              <ChevronRight size={13} />
+              <span className="topbar-current">{meta.title}</span>
+            </div>
+          </div>
 
-        <div className="content-container">
-          {activeTab === 'pipeline' && (
-            <LeadPipelineView onOpenOutreachReview={() => setActiveTab('outreach')} />
-          )}
-          {activeTab === 'outreach' && <OutreachReviewCenter />}
-          {activeTab === 'responses' && <ReplyTriageView />}
-          {activeTab === 'icp' && <IcpManagerView />}
-          {activeTab === 'analytics' && <ManagerAnalyticsView />}
-        </div>
-      </main>
+          <div className="topbar-actions">
+            {/* Offline banner */}
+            {serverOnline === false && (
+              <div className="alert alert-error topbar-offline">
+                <AlertCircle size={13} />
+                Backend offline — run <code style={{ fontFamily: 'monospace', marginLeft: 4 }}>npm run dev</code>
+              </div>
+            )}
+            <div
+              className="account-avatar"
+              title="Account"
+            >
+              S
+            </div>
+          </div>
+        </header>
+
+        {/* Page body */}
+        <main className="page-content">
+          {activeTab === 'pipeline'  && <LeadPipelinePage onOpenOutreachReview={() => setActiveTab('outreach')} />}
+          {activeTab === 'outreach'  && <OutreachReviewPage />}
+          {activeTab === 'responses' && <ReplyTriagePage />}
+          {activeTab === 'icp'       && <IcpSettingsPage />}
+          {activeTab === 'analytics' && <SalesAnalyticsPage />}
+        </main>
+      </div>
     </div>
   );
 }
-
-export default App;

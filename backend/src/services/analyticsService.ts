@@ -203,6 +203,39 @@ export class AnalyticsService {
 
     const latestScore = lead.scores[0];
     const dossier = lead.company?.researchDossiers[0];
+    const researchToolOutputs = dossier?.rawToolOutputs as unknown as Record<string, any> | null | undefined;
+    const researchRun = researchToolOutputs?._agentRun;
+    const pipelineJobs = await prisma.jobQueueItem.findMany({
+      where: {
+        jobType: 'PROCESS_LEAD_PIPELINE',
+        ...(lead.orgId ? { orgId: lead.orgId } : {}),
+        payload: { path: ['leadId'], equals: lead.id },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        payload: true,
+        status: true,
+        attempts: true,
+        maxAttempts: true,
+        lastError: true,
+        createdAt: true,
+        updatedAt: true,
+        processedAt: true,
+      },
+    });
+    const leadPipelineJobs = pipelineJobs
+      .filter((job) => (job.payload as Record<string, any>)?.leadId === lead.id)
+      .map(({ payload: _payload, ...job }) => job);
+    const agentStageEvents = lead.memoryItems
+      .filter((item) => item.eventType === 'AGENT_STAGE')
+      .map((item) => ({
+        id: item.id,
+        timestamp: item.timestamp,
+        description: item.deltaDescription,
+        metadata: item.metadata,
+      }));
+    const qualificationSnapshot = lead.memoryItems.find((item) => item.eventType === 'QUALIFICATION_EVALUATED');
 
     return {
       lead: {
@@ -235,6 +268,11 @@ export class AnalyticsService {
             qualificationReasons: dossier.qualificationReasons,
             confidenceScore: dossier.confidenceScore,
             generatedAt: dossier.generatedAt,
+            agentVersion: dossier.agentVersion,
+            toolOutputs: dossier.rawToolOutputs,
+            generatedBy: researchRun?.generatedBy,
+            fallbackReason: researchRun?.fallbackReason,
+            model: researchRun?.model,
           }
         : null,
       outreach: lead.outreachMessages.map((m) => ({
@@ -244,11 +282,30 @@ export class AnalyticsService {
         subject: m.subject,
         body: m.body,
         usedSignals: m.usedSignals,
+        createdAt: m.createdAt,
         approvedAt: m.approvedAt,
         sentAt: m.sentAt,
+        generation: lead.memoryItems.find((item) =>
+          item.eventType === 'OUTREACH_DRAFTED' &&
+          (item.metadata as Record<string, any> | null)?.messageId === m.id
+        )?.metadata,
         responses: m.responses,
       })),
       history: lead.memoryItems,
+      agentTrace: {
+        events: agentStageEvents,
+        runs: leadPipelineJobs,
+        qualification: qualificationSnapshot
+          ? { timestamp: qualificationSnapshot.timestamp, metadata: qualificationSnapshot.metadata }
+          : null,
+        enrichment: (lead.company?.enrichments || []).map((item) => ({
+          field: item.field,
+          value: item.value,
+          source: item.source,
+          confidence: item.confidence,
+          createdAt: item.createdAt,
+        })),
+      },
     };
   }
 }

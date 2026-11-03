@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/api';
 import type { LeadItem } from '../services/api';
+import PageHeader from '../components/ui/PageHeader';
 import {
   MessageSquareQuote,
   Send,
@@ -15,40 +16,37 @@ import {
 /**
  * Reply Triage.
  *
- * Paste a reply you actually received from a prospect; the backend classifies
- * intent, advances the lead stage, re-scores the lead and appends the event to
- * lead memory. Nothing here is generated or simulated — the reply text is your
- * real inbound message, and every number shown comes back from the server.
+ * Inbound prospect response classification, stage advance, lead memory and dynamic re-scoring.
  */
 
 const INTENT_STYLES: Record<string, { color: string; bg: string; border: string; consequence: string }> = {
   INTERESTED: {
-    color: 'text-emerald-400',
-    bg: 'bg-emerald-950/30',
-    border: 'border-l-emerald-500',
+    color: 'text-emerald-700',
+    bg: 'bg-emerald-50/80',
+    border: 'border-l-emerald-600',
     consequence: 'Lead advanced to engaged, score increased, flagged for immediate follow-up.',
   },
   FOLLOW_UP: {
-    color: 'text-amber-400',
-    bg: 'bg-amber-950/30',
+    color: 'text-amber-700',
+    bg: 'bg-amber-50/80',
     border: 'border-l-amber-500',
     consequence: 'Lead kept warm with a scheduled re-touch; score modestly adjusted.',
   },
   NOT_INTERESTED: {
-    color: 'text-rose-400',
-    bg: 'bg-rose-950/30',
-    border: 'border-l-rose-500',
+    color: 'text-slate-700',
+    bg: 'bg-slate-50',
+    border: 'border-l-slate-400',
     consequence: 'Lead demoted and removed from the active outreach queue.',
   },
   UNSUBSCRIBE: {
-    color: 'text-rose-400',
-    bg: 'bg-rose-950/30',
+    color: 'text-rose-700',
+    bg: 'bg-rose-50/80',
     border: 'border-l-rose-500',
     consequence: 'Lead suppressed permanently. No further outreach will be drafted.',
   },
 };
 
-export default function ReplyTriageView() {
+export default function ReplyTriagePage() {
   const [leads, setLeads] = useState<LeadItem[]>([]);
   const [selectedLeadId, setSelectedLeadId] = useState<string>('');
   const [search, setSearch] = useState('');
@@ -122,52 +120,43 @@ export default function ReplyTriageView() {
     result && previousScore !== null ? result.reScoredTotal - previousScore : null;
 
   return (
-    <div className="response-simulator-page">
-      <div className="pipeline-header">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <MessageSquareQuote className="text-emerald-400" size={26} />
-            Reply Triage
-          </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Paste a reply you received. LeadFlow classifies the intent, updates the lead stage,
-            re-scores the account and records the event in lead memory.
-          </p>
-        </div>
-      </div>
+    <div className="reply-triage-page">
+      <PageHeader
+        eyebrow="Response intelligence"
+        title="Reply triage"
+        description="Classify prospect replies, update lead stages, and refresh qualification scores."
+        icon={MessageSquareQuote}
+      />
 
-      <div className="pipeline-grid mt-4">
-        {/* Input: who replied, and what they said */}
+      <div className="pipeline-grid">
+        {/* Left Column: who replied, and what they said */}
         <div className="leads-list-column">
           <div className="dossier-card">
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-2">
-              Who replied?
+            <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-2">
+              Select Responding Lead
             </label>
 
-            <div className="relative mb-2">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+            <div className="relative mb-2.5">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
-                className="w-full pl-8 pr-2.5 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500"
+                className="form-input text-xs pl-9"
                 placeholder="Filter by name, company or role..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
 
-            {/* A styled listbox rather than a native <select size>: native
-                multi-row selects cannot truncate long rows, scroll awkwardly,
-                and look different on every OS. */}
             {leads.length === 0 ? (
-              <p className="text-xs text-slate-500 py-2">
+              <p className="text-xs text-slate-500 py-3 text-center">
                 No leads yet. Import leads from the Lead Intelligence tab first.
               </p>
             ) : filteredLeads.length === 0 ? (
-              <p className="text-xs text-slate-500 py-2">No leads match “{search}”.</p>
+              <p className="text-xs text-slate-500 py-3 text-center">No leads match “{search}”.</p>
             ) : (
               <ul
                 role="listbox"
                 aria-label="Select the lead who replied"
-                className="max-h-64 overflow-y-auto rounded-lg border border-slate-700 divide-y divide-slate-800"
+                className="max-h-60 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100 bg-slate-50"
               >
                 {filteredLeads.map((l) => {
                   const active = l.id === selectedLeadId;
@@ -178,20 +167,23 @@ export default function ReplyTriageView() {
                         role="option"
                         aria-selected={active}
                         onClick={() => handleSelectLead(l.id)}
-                        className={`w-full text-left px-3 py-2 flex items-center gap-2 transition-colors ${
-                          active ? 'bg-indigo-950/60' : 'bg-slate-900 hover:bg-slate-800/70'
+                        className={`w-full text-left px-3 py-2.5 flex items-center gap-2.5 transition-colors ${
+                          active ? 'bg-blue-50/80 text-blue-900' : 'bg-slate-50 hover:bg-slate-100'
                         }`}
                       >
+                        <div className="w-7 h-7 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-[11px] text-slate-600 shrink-0">
+                          {l.companyName?.slice(0, 2).toUpperCase()}
+                        </div>
                         <span className="min-w-0 flex-1">
-                          <span className="block text-sm text-white truncate">{l.fullName}</span>
-                          <span className="block text-xs text-slate-400 truncate">
+                          <span className="block text-xs font-semibold text-slate-900 truncate">{l.fullName}</span>
+                          <span className="block text-[11px] text-slate-500 truncate">
                             {l.companyName}
                             {l.role ? ` · ${l.role}` : ''}
                           </span>
                         </span>
                         <span
                           className={`text-xs font-bold shrink-0 tabular-nums ${
-                            l.leadScore === null ? 'text-slate-600' : 'text-emerald-400'
+                            l.leadScore === null ? 'text-slate-400' : 'text-emerald-700 font-mono'
                           }`}
                         >
                           {l.leadScore ?? '—'}
@@ -203,28 +195,28 @@ export default function ReplyTriageView() {
               </ul>
             )}
 
-            <div className="mt-4 pt-3 border-t border-slate-800">
-              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">
-                Their reply
+            <div className="mt-4 pt-3.5 border-t border-slate-200">
+              <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1.5">
+                Paste Inbound Reply Text
               </label>
               <textarea
-                rows={8}
-                className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs font-mono leading-relaxed focus:outline-none focus:border-indigo-500"
-                placeholder="Paste the prospect's reply exactly as you received it..."
+                rows={7}
+                className="form-textarea text-xs font-mono"
+                placeholder="Paste the prospect's reply message exactly as received..."
                 value={replyText}
                 onChange={(e) => setReplyText(e.target.value)}
               />
               <button
                 onClick={handleTriage}
                 disabled={loading || !replyText.trim() || !selectedLeadId}
-                className="btn btn-primary text-xs w-full mt-2 flex items-center justify-center gap-1.5"
+                className="btn btn-primary text-xs w-full mt-2.5 flex items-center justify-center gap-1.5"
               >
-                <Send size={14} /> {loading ? 'Triaging...' : 'Triage reply'}
+                <Send size={13} /> {loading ? 'Analyzing with Intelligence Engine...' : 'Triage Inbound Reply'}
               </button>
 
               {error && (
-                <div className="mt-2 p-2.5 rounded-lg bg-rose-950/40 border border-rose-800 text-xs text-rose-300 flex items-start gap-1.5">
-                  <AlertCircle size={14} className="mt-px shrink-0" />
+                <div className="mt-2.5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-start gap-1.5">
+                  <AlertCircle size={14} className="mt-0.5 shrink-0" />
                   <span>{error}</span>
                 </div>
               )}
@@ -232,36 +224,36 @@ export default function ReplyTriageView() {
           </div>
         </div>
 
-        {/* Output: classification + lead memory */}
+        {/* Right Column: Output classification + lead memory */}
         <div className="lead-360-column">
           {result && intentStyle && (
             <div className={`dossier-card mb-4 border-l-4 ${intentStyle.border} ${intentStyle.bg}`}>
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                    Classified intent
+                  <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                    Classified Intent
                   </span>
-                  <h3 className="text-lg font-bold text-white mt-1">
+                  <h3 className="text-lg font-bold text-slate-900 mt-1">
                     <span className={intentStyle.color}>{result.classification}</span>
                   </h3>
-                  <p className="text-xs text-slate-300 mt-1">{result.reasoning}</p>
-                  <p className="text-xs text-slate-400 mt-2 italic">{intentStyle.consequence}</p>
+                  <p className="text-xs text-slate-700 mt-1.5 leading-relaxed">{result.reasoning}</p>
+                  <p className="text-xs text-slate-500 mt-2 font-medium">{intentStyle.consequence}</p>
                 </div>
 
                 <div className="text-right shrink-0">
-                  <span className="text-xs text-slate-400 block">Re-scored</span>
-                  <div className="score-badge-large text-emerald-400 bg-emerald-950/80 border border-emerald-700">
+                  <span className="text-[11px] text-slate-500 font-medium block">Re-scored Lead</span>
+                  <div className="score-badge-large text-emerald-800 bg-emerald-50 border border-emerald-200 mt-1">
                     <span className="text-2xl font-black">{result.reScoredTotal}</span>
                     <span className="text-xs opacity-75">/100</span>
                   </div>
                   {scoreDelta !== null && (
                     <div
-                      className={`text-xs font-semibold mt-1 flex items-center justify-end gap-1 ${
+                      className={`text-xs font-semibold mt-1.5 flex items-center justify-end gap-1 ${
                         scoreDelta > 0
-                          ? 'text-emerald-400'
+                          ? 'text-emerald-700'
                           : scoreDelta < 0
-                          ? 'text-rose-400'
-                          : 'text-slate-400'
+                          ? 'text-rose-700'
+                          : 'text-slate-500'
                       }`}
                     >
                       {scoreDelta > 0 ? (
@@ -281,31 +273,35 @@ export default function ReplyTriageView() {
 
           <div className="dossier-card">
             <h3 className="section-title">
-              <History size={16} className="text-indigo-400" />
-              Lead memory
+              <History size={16} className="text-blue-600" />
+              Lead Memory Event Stream
             </h3>
 
             {timeline?.scoreEvolutionNarrative && (
-              <div className="p-3 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-indigo-200 mt-2 mb-3">
-                <strong>Score narrative:</strong> {timeline.scoreEvolutionNarrative}
+              <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-100 text-xs text-blue-900 mt-2.5 mb-3 leading-relaxed">
+                <strong className="text-blue-950 font-semibold">Score Evolution Narrative:</strong>{' '}
+                {timeline.scoreEvolutionNarrative}
               </div>
             )}
 
             <div className="timeline-container space-y-3 mt-3">
               {!timeline?.timeline?.length ? (
-                <p className="text-xs text-slate-500">
-                  No events recorded for this lead yet.
-                </p>
+                <div className="empty-state py-8">
+                  <History size={32} className="text-slate-400 mb-2" />
+                  <p className="text-xs text-slate-500">
+                    No timeline events recorded for this lead yet.
+                  </p>
+                </div>
               ) : (
                 timeline.timeline.map((event: any, idx: number) => (
                   <div key={idx} className="timeline-item">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-slate-200">{event.headline}</span>
-                      <span className="text-[10px] text-slate-500 font-mono">
+                      <span className="font-semibold text-slate-900">{event.headline}</span>
+                      <span className="text-[11px] text-slate-400 font-mono">
                         {new Date(event.timestamp).toLocaleString()}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5">{event.detail}</p>
+                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">{event.detail}</p>
                   </div>
                 ))
               )}

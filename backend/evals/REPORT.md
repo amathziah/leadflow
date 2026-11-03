@@ -1,6 +1,6 @@
 # LeadFlow — Evaluation Report
 
-Generated: 2026-10-02T20:39:58.805Z
+Generated: 2026-10-30T17:19:40.671Z
 
 Every number below is computed at run time by `npm run evals`. Metrics that
 could not be measured are reported as `n/a` or `skipped`, never estimated.
@@ -21,7 +21,7 @@ Pure function, no database, no network, no API key. Runs in CI on every push.
 | F1 | 1.000 |
 | True / false positives | 9 / 0 |
 | True / false negatives | 11 / 0 |
-| Latency p50 / p90 / p99 | 0.0223ms / 0.1397ms / 0.2265ms |
+| Latency p50 / p90 / p99 | 0.0225ms / 0.1377ms / 0.2208ms |
 
 _No failing cases._
 
@@ -44,7 +44,7 @@ than the system generating anything.
 | Signal grounding rate | 100.0% |
 | Fluff rate | 0.0% |
 | Placeholder leak rate | 0.0% |
-| Mean word count | 95.5 |
+| Mean word count | 91.3 |
 
 
 ## Methodology and limitations

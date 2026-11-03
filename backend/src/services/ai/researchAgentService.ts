@@ -32,6 +32,12 @@ export const ResearchOutputSchema = z.object({
 });
 
 export type ResearchAgentOutput = z.infer<typeof ResearchOutputSchema>;
+export type ResearchRunResult = ResearchAgentOutput & {
+  generatedBy: 'llm' | 'fallback';
+  fallbackReason?: string;
+  model: string;
+  tools: string[];
+};
 
 export class ResearchAgentService {
 
@@ -71,8 +77,8 @@ Return only verifiable facts. Use null for unknown fields.`;
       const response = await model.generateContent(prompt);
       const text = response.response.text().trim();
       const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) return JSON.parse(jsonMatch[0]);
-      return JSON.parse(text);
+      const result = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(text);
+      return { ...result, _agent: { generatedBy: 'llm' } };
     } catch (err: any) {
       logger.warn(`[search_company] Web search failed for ${domain}: ${err.message}`);
       return {
@@ -82,6 +88,7 @@ Return only verifiable facts. Use null for unknown fields.`;
         targetMarket: 'B2B',
         keyProducts: [],
         recentNews: null,
+          _agent: { generatedBy: 'fallback', fallbackReason: err.message || String(err) },
       };
     }
   }
@@ -101,6 +108,7 @@ Return only verifiable facts. Use null for unknown fields.`;
       headline: s.headline,
       detail: s.detail,
       source: s.source,
+      sourceUrl: s.sourceUrl,
       confidence: s.confidence,
     }));
   }
@@ -153,7 +161,7 @@ Return only verifiable facts. Use null for unknown fields.`;
   /**
    * Runs the bounded AI research agent using tool-collected context and validates output.
    */
-  static async runResearch(companyId: string): Promise<ResearchAgentOutput> {
+  static async runResearch(companyId: string): Promise<ResearchRunResult> {
     const profile = await this.get_company_profile(companyId);
     const signals = await this.get_signals(companyId);
     const history = await this.get_history(companyId);
@@ -167,6 +175,8 @@ Return only verifiable facts. Use null for unknown fields.`;
     };
 
     let rawJson: any = null;
+    let generatedBy: 'llm' | 'fallback' = 'llm';
+    let fallbackReason: string | undefined;
 
     try {
       const model = createLlmClient().getGenerativeModel({
@@ -219,6 +229,8 @@ CRITICAL RULES:
     } catch (err: any) {
       logger.warn(`AI model generation failed (${err.message}). Utilizing deterministic evidence synthesis.`);
       rawJson = this.generateDeterministicFallback(profile, signals);
+      generatedBy = 'fallback';
+      fallbackReason = err.message || String(err);
     }
 
     // Validate using Zod schema
@@ -228,6 +240,8 @@ CRITICAL RULES:
     if (!validation.success) {
       logger.warn(`Agent output failed schema validation: ${JSON.stringify(validation.error.errors)}. Repairing output...`);
       finalOutput = this.generateDeterministicFallback(profile, signals);
+      generatedBy = 'fallback';
+      fallbackReason = `Model output failed schema validation: ${validation.error.issues.map((issue) => issue.message).join('; ')}`;
     } else {
       finalOutput = validation.data;
     }
@@ -241,13 +255,27 @@ CRITICAL RULES:
         strategicSignals: finalOutput.signals,
         qualificationReasons: finalOutput.qualification_reasons,
         confidenceScore: finalOutput.confidence,
-        rawToolOutputs: toolPayload,
+        rawToolOutputs: {
+          ...toolPayload,
+          _agentRun: {
+            generatedBy,
+            ...(fallbackReason ? { fallbackReason } : {}),
+            model: MODELS.fast,
+            tools: ['get_company_profile', 'get_signals', 'get_history', 'search_company'],
+          },
+        },
         agentVersion: 'v2.0.0-react',
       },
     });
 
     logger.info(`📋 AI Research Agent completed dossier for ${profile.name} (Confidence: ${finalOutput.confidence})`);
-    return finalOutput;
+    return {
+      ...finalOutput,
+      generatedBy,
+      ...(fallbackReason ? { fallbackReason } : {}),
+      model: MODELS.fast,
+      tools: ['get_company_profile', 'get_signals', 'get_history', 'search_company'],
+    };
   }
 
   /**

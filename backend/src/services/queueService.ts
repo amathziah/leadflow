@@ -43,6 +43,57 @@ export class QueueService {
     estimatedCostUSD: 0.0,
   };
 
+  /** Persist a best-effort lifecycle event without allowing observability to
+   * change pipeline behavior if the audit write itself is unavailable. */
+  private static async recordAgentStage(
+    leadId: string,
+    companyId: string,
+    runId: string,
+    stage: string,
+    status: 'RUNNING' | 'COMPLETED' | 'FAILED',
+    details?: Record<string, unknown>
+  ) {
+    try {
+      await prisma.leadMemoryItem.create({
+        data: {
+          leadId,
+          companyId,
+          eventType: 'AGENT_STAGE',
+          deltaDescription: `${stage}: ${status.toLowerCase()}`,
+          metadata: JSON.parse(JSON.stringify({ runId, stage, status, ...details })) as any,
+        },
+      });
+    } catch (error: any) {
+      logger.warn(`Could not persist agent trace event for ${stage}: ${error.message}`);
+    }
+  }
+
+  private static async runTracedStage<T>(
+    leadId: string,
+    companyId: string,
+    runId: string,
+    stage: string,
+    action: () => Promise<T>,
+    describe: (result: T) => Record<string, unknown> = () => ({})
+  ): Promise<T> {
+    const startedAt = Date.now();
+    await this.recordAgentStage(leadId, companyId, runId, stage, 'RUNNING');
+    try {
+      const result = await action();
+      await this.recordAgentStage(leadId, companyId, runId, stage, 'COMPLETED', {
+        durationMs: Date.now() - startedAt,
+        ...describe(result),
+      });
+      return result;
+    } catch (error: any) {
+      await this.recordAgentStage(leadId, companyId, runId, stage, 'FAILED', {
+        durationMs: Date.now() - startedAt,
+        error: error.message || String(error),
+      });
+      throw error;
+    }
+  }
+
   /**
    * Generates a deterministic idempotency key
    */
@@ -217,28 +268,66 @@ export class QueueService {
       case 'PROCESS_LEAD_PIPELINE': {
         const leadId = payload.leadId;
         const companyId = payload.companyId;
+        const runId = `${job.id}:${job.attempts + 1}`;
 
         // Stage 1: Deterministic Qualification Check
-        const qual = await QualificationService.evaluateLead(leadId);
+        const qual = await this.runTracedStage(leadId, companyId, runId, 'ICP qualification',
+          () => QualificationService.evaluateLead(leadId),
+          (result) => ({
+            qualified: result.qualification.isQualified,
+            checks: result.qualification.checks,
+            reasons: result.qualification.reasons,
+            disqualificationReasons: result.qualification.disqualificationReasons,
+          })
+        );
         if (!qual.qualification.isQualified) {
           logger.info(`Lead ${leadId} disqualified deterministically. Pipeline stopped.`);
           return;
         }
 
         // Stage 2: Data Enrichment
-        await EnrichmentService.enrichCompany(companyId);
+        await this.runTracedStage(leadId, companyId, runId, 'Company enrichment',
+          () => EnrichmentService.enrichCompany(companyId),
+          (result) => ({
+            generatedBy: result.generatedBy,
+            fallbackReason: result.fallbackReason,
+            fieldsUpdated: result.records.map((record) => ({ field: record.field, source: record.source, confidence: record.confidence })),
+            recordsCreated: result.records.length,
+          })
+        );
 
         // Stage 3: Signal Detection
-        await SignalEngine.detectSignals(companyId);
+        await this.runTracedStage(leadId, companyId, runId, 'Market signal detection',
+          () => SignalEngine.detectSignalsWithProvenance(companyId),
+          (result) => ({
+            generatedBy: result.generatedBy,
+            fallbackReason: result.fallbackReason,
+            signalCount: result.signals.length,
+          })
+        );
 
         // Stage 4: Multi-Factor Lead Scoring
-        await ScoringService.scoreLead(leadId);
+        await this.runTracedStage(leadId, companyId, runId, 'Lead scoring',
+          () => ScoringService.scoreLead(leadId),
+          (result) => ({ totalScore: result.totalScore, formulaVersion: result.formulaVersion, explanation: result.explanation })
+        );
 
         // Stage 5: AI Research Agent Dossier Synthesis
-        await ResearchAgentService.runResearch(companyId);
+        await this.runTracedStage(leadId, companyId, runId, 'Research synthesis',
+          () => ResearchAgentService.runResearch(companyId),
+          (result) => ({ generatedBy: result.generatedBy, fallbackReason: result.fallbackReason, model: result.model, tools: result.tools })
+        );
 
         // Stage 6: Evidence-Grounded Outreach Personalization
-        await PersonalizationService.generateOutreach(leadId);
+        await this.runTracedStage(leadId, companyId, runId, 'Outreach drafting',
+          () => PersonalizationService.generateOutreach(leadId),
+          (result) => ({
+            messageId: result.messageId,
+            generatedBy: result.generatedBy,
+            fallbackReason: result.fallbackReason,
+            usedSignals: result.usedSignals,
+          })
+        );
 
         // Track token usage metrics
         this.metrics.totalTokensUsed += 2450;

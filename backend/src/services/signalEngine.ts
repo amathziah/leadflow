@@ -31,6 +31,15 @@ export class SignalEngine {
    * Returns verified business signals grounded in publicly available evidence.
    */
   static async detectSignals(companyId: string): Promise<DetectedSignal[]> {
+    const result = await this.detectSignalsWithProvenance(companyId);
+    return result.signals;
+  }
+
+  static async detectSignalsWithProvenance(companyId: string): Promise<{
+    signals: DetectedSignal[];
+    generatedBy: 'llm' | 'fallback';
+    fallbackReason?: string;
+  }> {
     const company = await prisma.company.findUnique({
       where: { id: companyId },
     });
@@ -39,7 +48,8 @@ export class SignalEngine {
       throw new Error(`Company not found with id: ${companyId}`);
     }
 
-    const detected = await this.fetchRealSignals(company.name, company.domain);
+    const detection = await this.fetchRealSignals(company.name, company.domain);
+    const detected = detection.signals;
 
     // Persist new signals into company_signals (avoid duplicates by checking headline)
     for (const sig of detected) {
@@ -74,13 +84,18 @@ export class SignalEngine {
           companyId: company.id,
           eventType: 'NEW_SIGNAL',
           deltaDescription: `Detected ${detected.length} business signals via web intelligence scan.`,
-          metadata: { signalCount: detected.length, signals: detected.map((s) => s.headline) },
+          metadata: {
+            signalCount: detected.length,
+            signals: detected.map((s) => s.headline),
+            generatedBy: detection.generatedBy,
+            ...(detection.fallbackReason ? { fallbackReason: detection.fallbackReason } : {}),
+          },
         },
       });
     }
 
     logger.info(`📡 Signal Engine detected ${detected.length} signals for ${company.name}`);
-    return detected;
+    return detection;
   }
 
   /**
@@ -96,7 +111,11 @@ export class SignalEngine {
   /**
    * Calls Gemini to detect real business signals for a company from public sources.
    */
-  private static async fetchRealSignals(companyName: string, domain: string): Promise<DetectedSignal[]> {
+  private static async fetchRealSignals(companyName: string, domain: string): Promise<{
+    signals: DetectedSignal[];
+    generatedBy: 'llm' | 'fallback';
+    fallbackReason?: string;
+  }> {
     try {
       const model = createLlmClient().getGenerativeModel({
         model: MODELS.fast,
@@ -137,9 +156,9 @@ Return ONLY a JSON array of up to 5 verified signals. Only include signals you c
         parsed = JSON.parse(text);
       }
 
-      if (!Array.isArray(parsed)) return [];
+      if (!Array.isArray(parsed)) return { signals: [], generatedBy: 'fallback', fallbackReason: 'Model response was not a signal array.' };
 
-      return parsed
+      return { signals: parsed
         .filter((s) => s.headline && s.detail && s.type)
         .map((s) => ({
           type: SIGNAL_TYPE_MAP[s.type] ?? SignalType.HIRING_GROWTH,
@@ -148,10 +167,10 @@ Return ONLY a JSON array of up to 5 verified signals. Only include signals you c
           source: String(s.source || 'Web Intelligence'),
           sourceUrl: s.sourceUrl ? String(s.sourceUrl) : undefined,
           confidence: typeof s.confidence === 'number' ? Math.min(1, Math.max(0, s.confidence)) : 0.75,
-        }));
+        })), generatedBy: 'llm' };
     } catch (err: any) {
       logger.warn(`Signal detection failed for ${domain}: ${err.message}. Returning no signals.`);
-      return [];
+      return { signals: [], generatedBy: 'fallback', fallbackReason: err.message || String(err) };
     }
   }
 }

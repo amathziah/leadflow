@@ -20,6 +20,8 @@ export interface EnrichmentPayload {
   fundingStage?: string;
   totalRaisedUSD?: number;
   records: EnrichedAttribute[];
+  generatedBy: 'llm' | 'fallback' | 'not_needed';
+  fallbackReason?: string;
 }
 
 interface GeminiEnrichmentResult {
@@ -30,6 +32,8 @@ interface GeminiEnrichmentResult {
   fundingStage: string | null;
   totalRaisedUSD: number | null;
   confidence: number;
+  generatedBy: 'llm' | 'fallback';
+  fallbackReason?: string;
 }
 
 export class EnrichmentService {
@@ -48,6 +52,8 @@ export class EnrichmentService {
     }
 
     const records: EnrichedAttribute[] = [];
+    let generatedBy: EnrichmentPayload['generatedBy'] = 'not_needed';
+    let fallbackReason: string | undefined;
     let { employeeCount, industry, country, technologies, fundingStage, totalRaisedUSD } = company;
 
     // Only call AI for fields that are genuinely missing
@@ -56,6 +62,8 @@ export class EnrichmentService {
 
     if (needsEnrichment) {
       const aiResult = await this.fetchAiEnrichment(company.name, company.domain, company.website || '');
+      generatedBy = aiResult.generatedBy;
+      fallbackReason = aiResult.fallbackReason;
 
       if (!employeeCount && aiResult.employeeCount) {
         employeeCount = aiResult.employeeCount;
@@ -175,6 +183,8 @@ export class EnrichmentService {
       fundingStage: fundingStage ?? undefined,
       totalRaisedUSD: totalRaisedUSD ?? undefined,
       records,
+      generatedBy,
+      fallbackReason,
     };
   }
 
@@ -194,6 +204,8 @@ export class EnrichmentService {
       fundingStage: null,
       totalRaisedUSD: null,
       confidence: 0.5,
+      generatedBy: 'fallback',
+      fallbackReason: 'Enrichment request did not complete.',
     };
 
     try {
@@ -242,10 +254,11 @@ Return ONLY a JSON object with your best-effort findings. Use null for fields yo
         fundingStage: parsed.fundingStage || null,
         totalRaisedUSD: typeof parsed.totalRaisedUSD === 'number' ? parsed.totalRaisedUSD : null,
         confidence: typeof parsed.confidence === 'number' ? Math.min(1, Math.max(0, parsed.confidence)) : 0.7,
+        generatedBy: 'llm',
       };
     } catch (err: any) {
       logger.warn(`Gemini enrichment failed for ${domain}: ${err.message}. Proceeding with available data.`);
-      return defaultResult;
+      return { ...defaultResult, fallbackReason: err.message || String(err) };
     }
   }
 }

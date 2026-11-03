@@ -1,165 +1,265 @@
-# LeadFlow
+# LeadFlow AI
 
-**Turn a list of companies into researched, evidence-grounded sales outreach that a human approves before anything is sent.**
+LeadFlow turns a company list into researched, ICP-qualified prospects and evidence-grounded outreach drafts. A person reviews each draft before delivery. Qualification and scoring use deterministic code; AI is used for research synthesis, enrichment, signal detection, and copy generation, with provenance and fallbacks exposed in the product.
 
-LeadFlow is a working B2B prospecting tool. You import companies, define who you sell to, and it enriches each account, detects buying signals, qualifies it against your ICP, scores it, researches it, and drafts outreach grounded in what it actually found. Nothing leaves the system until a person approves it.
-
-It is built around one rule: **use an LLM only where judgement is genuinely needed.** Qualification, scoring, and the review state machine are deterministic code — auditable, instant, and free. The model is used for research synthesis and copywriting, where it earns its cost.
-
----
-
-## Why this exists
-
-Most prospecting tools either spray generic templates or hand you a chatbot. Both fail the same way: nobody can tell *why* a lead was picked, or *what evidence* a message is based on.
-
-LeadFlow answers five questions, and shows its work for each:
-
-| Question | How it is answered |
-| :--- | :--- |
-| Which companies should we contact? | Deterministic ICP rules — no model, no hallucination |
-| Why them, why now? | Signal detection: funding, hiring, expansion, leadership change |
-| What evidence backs that? | A research dossier built from four tools, schema-validated |
-| What do we say? | Copy grounded in the specific signals found, with the evidence attached |
-| What happened after? | Reply triage reclassifies intent and re-scores the account |
-
----
-
-## What is real, and what is not
-
-This section exists because most project READMEs overstate. Here is the honest boundary.
-
-**Works today**
-- CSV/JSON lead import, ICP management, enrichment, signal detection, scoring, research dossiers, outreach drafting, human review, reply triage, analytics
-- **Real email sending over SMTP.** Works with Gmail app passwords, SendGrid, Mailgun, Postmark, SES
-- A review gate that genuinely blocks sending — `dispatch` refuses anything not in `APPROVED`
-- An evaluation suite whose numbers are computed at run time, not written by hand
-
-**Deliberate limits**
-- **No email sending without SMTP configured.** The app will not mark a message `SENT` that it did not send. Without SMTP you approve drafts and copy or export them.
-- **Single-tenant.** There is no auth or login; it runs as one workspace. Do not expose it to the internet as-is.
-- **Signal detection is model-sourced.** Signals come from the model's knowledge, not a live news feed. Treat them as leads to verify, not facts.
-- **No LinkedIn automation.** Removed deliberately — it required replaying a session cookie, which violates LinkedIn's terms and puts the user's account at risk.
-
----
-
-## Architecture
+## Product workflow
 
 ```mermaid
 flowchart LR
-    subgraph Deterministic["Deterministic — no LLM"]
-        Import[CSV / JSON import] --> Qualify[ICP rules engine]
-        Qualify --> Score[Weighted scoring]
-        Gate[Review state machine]
-    end
-
-    subgraph Model["Model-assisted"]
-        Enrich[Enrichment]
-        Signals[Signal detection]
-        Research[Research agent + 4 tools]
-        Copy[Outreach drafting]
-    end
-
-    Import --> Enrich --> Signals --> Qualify
-    Score --> Research --> Copy --> Gate
-    Gate -->|approved| Send[SMTP send]
-    Send --> Triage[Reply triage] --> Score
+    Import[CSV / JSON import] --> Candidate[Candidate lead + company]
+    Candidate --> Queue[Persistent job queue]
+    Queue --> Qualify[Deterministic ICP qualification]
+    Qualify -->|Fail| Stop[Disqualified; run stops]
+    Qualify -->|Pass| Enrich[Company enrichment]
+    Enrich --> Signals[Market signal detection]
+    Signals --> Score[Deterministic multi-factor score]
+    Score --> Research[Tool-augmented research synthesis]
+    Research --> Draft[Signal-grounded outreach draft]
+    Draft --> Review[Human review]
+    Review -->|Reject| Rejected[Rejected]
+    Review -->|Approve| Approved[Approved]
+    Approved -->|SMTP configured| Send[SMTP delivery]
+    Approved -->|SMTP unavailable| Manual[Copy or export]
+    Send --> Reply[Reply triage]
+    Reply --> Memory[Persist response + update lead + rescore]
 ```
 
-**Why the split:** qualification runs in microseconds, costs nothing, and returns the same answer every time — so it must never be a model call. Scoring is a versioned weighted formula producing an itemised breakdown you can audit. The review gate is a state machine: `DRAFT → REVIEW → APPROVED → SENT`, and the send path hard-fails on any other state.
+The full pipeline is asynchronous. A lead that fails deterministic ICP checks stops before AI enrichment and research. Drafts enter a review queue; the server refuses delivery unless a draft is approved, and only records it as sent after the SMTP transport accepts it.
 
-The research agent is a **tool-augmented synthesis pass**, not a ReAct loop: four deterministic tools (`search_company`, `get_signals`, `get_history`, `get_company_profile`) gather evidence, then one model call synthesises a dossier that is validated against a Zod schema, with a deterministic fallback when validation fails.
+## Architecture at a glance
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the data model and request flows.
+```mermaid
+flowchart TB
+    Browser[React + TypeScript UI\nVite development server] -->|HTTP JSON /api| Express[Express API\nHelmet · CORS · request logging]
+    Express --> Routes[LeadFlow routes]
+    Routes --> Services[Domain services]
+    Services --> Prisma[Prisma client]
+    Prisma --> Postgres[(PostgreSQL)]
+    Services --> Gemini[Google Gemini API\noptional at runtime; failures surfaced]
+    Services --> SMTP[Nodemailer / SMTP\noptional]
+    Express --> Worker[In-process queue worker\n1500 ms polling]
+    Worker --> Services
+    Services --> Trace[Lead memory stage events]
+    Trace --> Postgres
+```
 
----
+### Repository map
 
-## Evaluation
+```text
+frontend/
+  src/App.tsx                    App shell, sidebar, tab navigation and page selection
+  src/pages/                     Lead pipeline, ICP Studio, analytics, review and reply triage
+  src/components/                Shared page components and AgentRunTrace
+  src/services/api.ts            Typed fetch client and API data shapes
+  src/index.css                  Global theme, layout and component styles
+  vite.config.ts                 Vite + React + Tailwind integration
 
-Run it yourself: `cd backend && npm run evals`. It writes [backend/evals/REPORT.md](backend/evals/REPORT.md).
+backend/
+  src/server.ts                  Express setup, database bootstrap, worker lifecycle and shutdown
+  src/routes/index.ts            Health route and route mounting
+  src/routes/leadflowRoutes.ts   HTTP endpoints and request/response orchestration
+  src/services/                  Import, ICP, qualification, enrichment, scoring, review, etc.
+  src/services/ai/                Gemini client and research agent
+  src/db/prisma.ts               Prisma connection lifecycle
+  src/config/env.ts              Environment parsing and validation with Zod
+  src/middleware/                Request logging and centralized error handling
+  src/browser/                   Browser setup and visual grounding utilities
+  prisma/schema.prisma           PostgreSQL schema, enums and relations
+  evals/                          Deterministic and model-assisted evaluation harnesses
+  scripts/                        Manual AI/browser diagnostics
 
-The suite is in two tiers. **Tier 1** is a pure function — no database, no network, no API key — so it runs in CI on every push. **Tier 2** needs a database and a real key, and reports itself as *skipped* when they are absent rather than printing a placeholder number.
+docs/                             Incident postmortem and supporting notes
+docker-compose.yml                Local PostgreSQL service
+sample_leads.csv                  Example import data
+```
 
-**Tier 1 — ICP qualification**, 20 hand-labelled cases including 5 adversarial ones:
+## Frontend architecture
 
-| Metric | Result |
-| :--- | :--- |
-| Accuracy | 100% (20/20) |
-| Precision / Recall | 1.00 / 1.00 |
-| Latency p50 / p99 | 0.023ms / 0.218ms |
+The frontend is a React 19 single-page application written in TypeScript and served by Vite. `App.tsx` owns the application shell, sidebar collapse state, backend health indicator, and page navigation. Navigation currently uses local React state rather than a URL router, so pages are selected as tabs and do not have independent route URLs.
 
-That 100% is only meaningful because of how it was reached. **On its first run the suite failed 4 of 18 cases, at 63.6% precision.** It found four real over-acceptance bugs:
+| UI page | Responsibility |
+| --- | --- |
+| Lead Intelligence (`LeadPipelinePage`) | Import and search leads, view lead/company details, run pipeline actions and inspect the agent trace |
+| Outreach Review (`OutreachReviewPage`) | Review evidence, edit drafts, approve/reject, copy/export, and send approved email |
+| Reply Triage (`ReplyTriagePage`) | Submit an inbound response for classification and view the resulting lead update |
+| ICP Studio (`IcpSettingsPage`) | Configure active qualification criteria |
+| Sales Analytics (`SalesAnalyticsPage`) | View manager funnel, outreach and queue metrics |
 
-- `Agriculture Software` qualified against a `Software` ICP, because matching used `String.includes`
-- `Executive Assistant to the CEO` qualified as a CEO, for the same reason
-- A blank country auto-passed, admitting accounts from any region
-- A blank role auto-passed, with no decision-maker confirmed
+`src/services/api.ts` is the shared typed API client. It uses `VITE_API_BASE_URL` or defaults to `http://localhost:4000/api`. Failed network and HTTP requests throw errors for pages to display; they are not silently converted into empty results. Shared UI elements live under `src/components/ui`. `AgentRunTrace` renders stage events and queue-run information from the lead detail response. The global Soft Dark theme and layout rules are in `src/index.css`.
 
-Matching is now token-aware with word boundaries, generic-suffix handling (`FinTech Solutions` still matches `FinTech`), and an explicit support-role exclusion list. Unknown values are handled by risk: unknown headcount is provisionally accepted pending enrichment, while unknown country or role is rejected.
+## Backend architecture
 
-**Tier 2 — generated outreach quality** (n=10, real Gemini calls):
+The backend is a Node.js 20+ Express service using TypeScript, Prisma, and PostgreSQL. `server.ts` configures Helmet, CORS, JSON parsing, request logging, API routes, 404 handling, and the error handler. During startup it connects to PostgreSQL, ensures a default organization/ICP context exists, and starts the queue worker. Graceful shutdown stops the worker and disconnects Prisma.
 
-| Metric | Result |
-| :--- | :--- |
-| Fell back to template | 0% |
-| Signal grounding | 100% |
-| Fluff / placeholder leak | 0% / 0% |
-| Mean length | 92 words |
+Routes validate and shape HTTP input, then delegate domain work to services. The main service boundaries are:
 
-**Limitations, stated plainly.** Twenty author-written cases is a regression guard, not evidence about real-world lead quality. Grounding is a *lexical* check — it proves copy reuses terms from its evidence, not that the claims are true. None of these numbers measure the underlying model; they measure this system's rules, prompts and plumbing.
+| Service | Responsibility |
+| --- | --- |
+| `discoveryService` | Parse CSV/imported records and persist company/lead candidates |
+| `icpService` | Create, list, activate and update ICP profiles |
+| `qualificationService` | Deterministic, explainable ICP checks and qualification status |
+| `enrichmentService` | Enrich company profile fields and record provenance/confidence |
+| `signalEngine` | Detect and persist company buying signals |
+| `scoringService` | Calculate and persist versioned, itemized lead scores |
+| `ai/researchAgentService` | Gather profile, signal, history and model-assisted company research; validate dossier output |
+| `personalizationService` | Generate an outreach draft and retain generation provenance/fallback details |
+| `reviewService` / `emailService` | Enforce approval state and deliver via SMTP |
+| `responseAnalysisService` | Classify a submitted reply, update lead state/memory and rescore |
+| `analyticsService` | Build lead 360 and manager dashboard data |
+| `queueService` | Persist jobs, execute pipeline stages, retry failures and expose queue metrics |
+| `leadMemoryService` | Return timeline and agent trace events for a lead |
 
-### A bug the suite caught
+### Pipeline job and agent trace
 
-Tier 2 initially reported a perfect 100% grounding and 0% fluff — which was wrong. Every model call was failing with a 404 (`gemini-2.0-flash` had been retired by Google), each service was catching the error and silently returning its deterministic fallback, and the eval was scoring those hand-written templates as if they were model output.
+`QueueService` is an in-process polling worker backed by PostgreSQL, not a separate broker. It checks for due `WAITING` jobs every 1.5 seconds, marks one active, and executes the job. Idempotency keys prevent duplicate active/recently completed work. Failed jobs are retried with bounded exponential backoff and jitter; jobs that exhaust `maxAttempts` move to `DLQ` with the last error recorded.
 
-Two fixes: `generateOutreach` now reports `generatedBy: 'llm' | 'fallback'` so a degraded run cannot pass as healthy, and the eval reports fallback rate separately and scores quality on model output only. Model IDs moved behind env-overridable aliases (`gemini-flash-latest`) so a retirement cannot silently gut the pipeline again.
+For `PROCESS_LEAD_PIPELINE`, the worker records a `LeadMemoryItem` before and after each stage (or on failure):
 
-Written up in full, including the three reasons it stayed invisible: **[docs/POSTMORTEM-silent-model-outage.md](docs/POSTMORTEM-silent-model-outage.md)**.
----
+1. ICP qualification (deterministic; a disqualified lead stops here)
+2. Company enrichment
+3. Market signal detection
+4. Lead scoring
+5. Research synthesis
+6. Outreach drafting
 
-## Getting started
+Trace metadata can include run ID, stage status, duration, qualification checks/reasons, score breakdown, tools used, signals, model/fallback provenance, generated message ID, and error details. Lead detail combines these trace events with related queue runs, qualification history, enrichments, signals, score, research dossier, and outreach. Trace writes are best-effort so an observability write failure does not itself fail a pipeline stage.
 
-**Requirements:** Node 20+, Docker (or any Postgres), and a [free Gemini API key](https://aistudio.google.com/apikey).
+The research service is tool-augmented synthesis, not an autonomous unbounded ReAct loop. It gathers structured company profile, stored signals, lead/company history, and a model-assisted company profile lookup, then makes a bounded synthesis call. Output is checked against a Zod schema; malformed output or a model error produces a deterministic fallback with a recorded reason. Model aliases are configurable through `GEMINI_FAST_MODEL` and `GEMINI_DEEP_MODEL`.
+
+### Deterministic and model-assisted work
+
+| Deterministic application logic | Model-assisted work |
+| --- | --- |
+| ICP criteria checks and disqualification reasons | Company enrichment where configured data is missing |
+| Versioned scoring formula and factor breakdown | Signal suggestions/detection |
+| Queue idempotency, retry and state transitions | Research dossier synthesis |
+| Human approval requirement and send-before-commit behavior | Outreach draft generation |
+| Reply classification heuristics and persistence | — |
+
+The model is not treated as an authoritative source of truth. Signals and generated company research should be verified by a reviewer; a source URL or model-generated statement is not proof that the event is accurate or current. Missing credentials or AI errors can cause a deterministic fallback in services that support one. The UI and trace expose the fallback provenance instead of treating it as model success.
+
+## Data model
+
+The authoritative schema is [`backend/prisma/schema.prisma`](backend/prisma/schema.prisma). The model is relational, with JSON fields for variable evidence and explanation payloads. Important entity groups:
+
+| Group | Models | Purpose |
+| --- | --- | --- |
+| Workspace and targeting | `Organization`, `User`, `IcpProfile`, `Campaign` | Workspace context, user/reviewer references, ICP criteria and campaign grouping |
+| Prospect intelligence | `Company`, `Lead`, `EnrichmentRecord`, `CompanySignal` | Company/contact facts, provenance-tracked enrichment and market signals |
+| Decisions and evidence | `LeadScore`, `ResearchDossier`, `LeadMemoryItem`, `EvidenceSource` | Explainable scoring, research output, longitudinal history and evidence records |
+| Outreach and response | `OutreachMessage`, `InboundResponse`, `ChatMessage` | Draft lifecycle, reviewed delivery, response classification and conversation history |
+| Execution and audit | `JobQueueItem`, `Workflow`, `ExecutionLog`, `AuditLog` | Queue execution, legacy workflow telemetry and audit records |
+
+Relations cascade where child records belong to a company or lead. Companies are unique by `(orgId, domain)`. Scores and memory preserve historical results; `Lead.leadScore` is also a cached current score used for list ordering. The schema contains organization and user concepts, but the current API has no authentication or authorization middleware and generally operates on a seeded default workspace. Treat this as a single-workspace development application; the schema alone does not provide tenant isolation.
+
+### Outreach delivery state
+
+Outreach states are represented by the `OutreachState` enum: `DRAFT`, `REVIEW`, `APPROVED`, `SENT`, `REJECTED`, and `FAILED`. The review service permits dispatch only for an approved message. Delivery uses Nodemailer over SMTP. State changes to sent only after the mail transport returns acceptance; failed or unconfigured SMTP does not create a phantom sent record. When SMTP is not configured, approved messages can be copied or exported manually.
+
+## HTTP API
+
+The API is mounted under `/api`. `routes/index.ts` mounts the LeadFlow router both at `/api` and `/api/leadflow` for compatibility, so the paths below also work with the `/leadflow` prefix. Successful responses generally use `{ success: true, data }`.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` or `/api/health` | Service health check |
+| `POST` | `/api/import/csv` | Parse/import CSV; optionally enqueue newly created leads with `autoProcess` |
+| `POST` | `/api/import/json` | Import company/contact objects; optionally enqueue processing |
+| `GET`, `POST`, `PUT` | `/api/icp`, `/api/icp/:id` | List/read active ICP, create, update profile |
+| `GET` | `/api/leads` | Search/filter leads by status, text and minimum score |
+| `GET` | `/api/leads/:id/360` | Lead, score, signals, dossier, history and agent trace |
+| `GET` | `/api/leads/:id/timeline` | Lead memory timeline |
+| `POST` | `/api/leads/:id/qualify` | Evaluate ICP rules |
+| `POST` | `/api/leads/:id/enrich` | Enrich company and detect signals |
+| `POST` | `/api/leads/:id/score` | Recalculate lead score |
+| `POST` | `/api/leads/:id/research` | Run research synthesis |
+| `POST` | `/api/leads/:id/outreach` | Generate outreach draft |
+| `POST` | `/api/leads/:id/pipeline` | Enqueue full pipeline job |
+| `GET` | `/api/outreach/pending` | List drafts waiting for human review |
+| `POST` | `/api/outreach/:id/approve` | Save edited draft and approve it |
+| `POST` | `/api/outreach/:id/reject` | Reject draft with reason |
+| `POST` | `/api/outreach/:id/dispatch` | Send an approved email over SMTP |
+| `POST` | `/api/leads/:id/response` | Classify and persist an inbound response; update and rescore lead |
+| `GET` | `/api/analytics/manager` | Manager funnel and outreach analytics |
+| `GET` | `/api/analytics/queue` | Queue and worker metrics |
+| `GET` | `/api/config/status` | Database, Gemini and SMTP configuration status (no secrets) |
+| `POST` | `/api/config/smtp/verify` | Verify SMTP configuration |
+
+## Stack and integrations
+
+- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, Lucide icons.
+- **Backend:** Node.js 20+, TypeScript, Express 4, Zod, Winston.
+- **Persistence:** PostgreSQL 16 and Prisma 5.
+- **AI:** Google Generative AI SDK for Gemini. Fast/deep model names are environment-overridable. AI-dependent services retain provenance and may use deterministic fallback behavior.
+- **Email:** Nodemailer using any compatible SMTP service (Gmail app password, SES, SendGrid, Mailgun, Postmark, or another relay).
+- **Browser utilities:** Playwright-based helpers exist under `backend/src/browser`; they are not a continuously running browser automation platform.
+- **Optional storage:** Supabase configuration is for screenshot/log storage; without it screenshots can be stored locally.
+- **Queue:** PostgreSQL-backed in-process polling worker. No Redis or external queue broker is required.
+
+## Local development
+
+Requirements: Node.js 20+, Docker with Compose (or an existing PostgreSQL database), and optionally a Gemini API key for model-assisted stages.
 
 ```bash
-git clone <your-repo-url> && cd lead-flow
-
-# 1. Start Postgres (or point DATABASE_URL at your own)
+git clone <repository-url>
+cd lead-flow
 docker compose up -d --wait
 
-# 2. Backend
 cd backend
 npm install
-cp .env.example .env          # add your GEMINI_API_KEY
+cp .env.example .env
+# Set DATABASE_URL and, if desired, GEMINI_API_KEY in backend/.env
 npx prisma db push
-npm run dev                   # http://localhost:4000
-
-# 3. Frontend, in a second terminal
-cd frontend
-npm install
-npm run dev                   # http://localhost:5173
+npm run dev
 ```
 
-The app tells you what is configured: `GET /api/config/status` reports database, model and SMTP state, and the review screen shows a banner when sending is off.
+In another terminal:
 
-**To enable sending**, add SMTP settings to `backend/.env` (see `.env.example`). For Gmail use an [App Password](https://myaccount.google.com/apppasswords), not your account password. Verify with `POST /api/config/smtp/verify`.
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-### Using it
+The frontend defaults to `http://localhost:4000/api` for the backend. Set `VITE_API_BASE_URL` to change it. The Vite app is normally available at `http://localhost:5173`; the backend defaults to port `4000`.
 
-1. **ICP Studio** — define target industries, headcount band, countries and roles
-2. **Lead Intelligence** — paste CSV (`Company,Domain,Industry,Employees,Country,Role,Contact Name,Email`) and run the pipeline
-3. **Human Review** — read the evidence behind each draft, edit it, then Approve. Send, Copy, or Export CSV
-4. **Reply Triage** — paste a real reply; it classifies intent, re-scores the account and records it
-5. **Manager Analytics** — funnel conversion and queue health
+### Environment settings
 
----
+Backend configuration is parsed in `backend/src/config/env.ts`; the documented template is [`backend/.env.example`](backend/.env.example).
 
-## Tech
+| Variable | Use |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection string (required) |
+| `PORT`, `NODE_ENV` | HTTP port and runtime mode |
+| `GEMINI_API_KEY` | Enables Gemini-backed enrichment, signals, research and outreach |
+| `GEMINI_FAST_MODEL`, `GEMINI_DEEP_MODEL` | Override model aliases |
+| `LLM_PROVIDER` | Template advertises provider selection; current `llmClient` uses Gemini when a usable key is present and service-level fallbacks on errors |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Optional email delivery configuration |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, bucket settings | Optional screenshot/log storage |
+| `BROWSER_MODE`, `CHROME_CDP_PORT` | Browser helper configuration |
 
-TypeScript throughout. **Backend:** Node 20, Express, Prisma, PostgreSQL, Zod, Playwright, Nodemailer, Winston. **Frontend:** React 19, Vite, Tailwind CSS v4. **AI:** Google Gemini. **CI:** GitHub Actions runs typecheck, the Tier 1 evals, and a frontend build on every push.
+To enable real email sending, configure all required SMTP values and verify with `POST /api/config/smtp/verify`. Without SMTP, manual copy/export remains available and dispatch fails closed. Check `GET /api/config/status` for non-secret integration status.
 
-Tailwind's `slate` and `indigo` scales are remapped in `src/index.css` to the product's violet-black surface palette, so utility classes and the hand-written component CSS resolve to one coherent colour system rather than two.
+## Evaluation and quality checks
 
-Jobs run through an in-process, database-backed queue with SHA-256 idempotency keys, bounded retries and a dead-letter queue. It is a polling worker, not Redis-backed — fine for single-node use, and the honest description of what is there.
+Run the evaluation harness with:
+
+```bash
+cd backend
+npm run evals
+```
+
+Tier 1 exercises deterministic ICP qualification as a pure function and requires no database, network, or model key. Tier 2 evaluates generated outreach and requires a database with signal-bearing leads plus a Gemini key; unavailable prerequisites are reported as skipped. The latest checked-in run is summarized in [`backend/evals/REPORT.md`](backend/evals/REPORT.md). Its 20 authored qualification cases are regression coverage, not a measure of production-wide classification quality. Outreach grounding checks lexical overlap with evidence and does not prove that the source claims are true.
+
+For more on a past silent model outage and the provenance/evaluation fixes, see [`docs/POSTMORTEM-silent-model-outage.md`](docs/POSTMORTEM-silent-model-outage.md).
+
+## Current boundaries
+
+- There is no login or API authentication. Do not expose this development application publicly without adding access control and tenant scoping.
+- The queue worker runs inside the API process. It is suitable for a single-node setup, not horizontally scaled worker deployment.
+- Signal detection and the company research lookup are model-assisted; the system does not subscribe to a guaranteed live news feed or independently verify every source.
+- LinkedIn automation is not implemented. LinkedIn-channel drafts can be handled manually; automated dispatch supports email over SMTP only.
+- Browser automation helpers and legacy workflow/chat schema are present, but are not the primary lead-processing path described above.
 
 ## License
 

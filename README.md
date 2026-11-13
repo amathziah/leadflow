@@ -32,6 +32,22 @@ The full pipeline is asynchronous. A lead that fails deterministic ICP checks st
 
 ![LeadFlow AI lead intelligence workspace](docs/screenshots/lead-intelligence.png)
 
+### Outreach review
+
+![LeadFlow AI outreach review queue](docs/screenshots/outreach-review.png)
+
+### Reply triage
+
+![LeadFlow AI reply triage](docs/screenshots/reply-triage.png)
+
+### ICP Studio
+
+![LeadFlow AI ICP Studio](docs/screenshots/icp-studio.png)
+
+### Sales analytics
+
+![LeadFlow AI sales analytics dashboard](docs/screenshots/sales-analytics.png)
+
 ## Architecture at a glance
 
 ```mermaid

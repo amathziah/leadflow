@@ -26,6 +26,12 @@ flowchart LR
 
 The full pipeline is asynchronous. A lead that fails deterministic ICP checks stops before AI enrichment and research. Drafts enter a review queue; the server refuses delivery unless a draft is approved, and only records it as sent after the SMTP transport accepts it.
 
+## Screenshots
+
+### Lead intelligence
+
+![LeadFlow AI lead intelligence workspace](docs/screenshots/lead-intelligence.png)
+
 ## Architecture at a glance
 
 ```mermaid

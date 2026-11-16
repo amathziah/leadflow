@@ -243,7 +243,7 @@ export default function IcpSettingsPage() {
           <div>
             <span className="icp-section-kicker"><ShieldCheck size={14} />Transparent qualification</span>
             <h2 id="icp-engine-title">Deterministic Qualification Engine</h2>
-            <p>Basic qualification uses boolean rules for consistent, explainable decisions without LLM interpretation.</p>
+            <p>Four explicit checks determine ICP qualification. Empty target lists skip that check; missing employee counts pass provisionally.</p>
           </div>
         </div>
 
@@ -251,20 +251,20 @@ export default function IcpSettingsPage() {
           <div className="icp-formula-label">QUALIFICATION FORMULA</div>
           <div className="icp-formula" aria-label="Qualification formula">
             <code><span className="syntax-function">IsQualified</span>(C, L) =</code>
-            <div><span className="syntax-keyword">Industry</span> ∈ <span className="syntax-variable">ICP.Industries</span></div>
+            <div><span className="syntax-keyword">IndustryMatch</span> = <span className="syntax-keyword">Industry</span> ∈ <span className="syntax-variable">ICP.Industries</span> <span className="syntax-comment">(or list empty)</span></div>
             <strong>AND</strong>
-            <div><span className="syntax-number">Min</span> ≤ <span className="syntax-keyword">Count</span> ≤ <span className="syntax-number">Max</span></div>
+            <div><span className="syntax-keyword">SizeMatch</span> = <span className="syntax-keyword">Count</span> unknown <span className="syntax-keyword">OR</span> <span className="syntax-number">Min</span> ≤ <span className="syntax-keyword">Count</span> ≤ <span className="syntax-number">Max</span></div>
             <strong>AND</strong>
-            <div><span className="syntax-keyword">Geo</span> ∈ <span className="syntax-variable">ICP.Countries</span></div>
+            <div><span className="syntax-keyword">GeoMatch</span> = <span className="syntax-keyword">Geo</span> ∈ <span className="syntax-variable">ICP.Countries</span> <span className="syntax-comment">(or list empty)</span></div>
             <strong>AND</strong>
-            <div><span className="syntax-keyword">Role</span> ∈ <span className="syntax-variable">ICP.Roles</span></div>
+            <div><span className="syntax-keyword">RoleMatch</span> = <span className="syntax-keyword">Role</span> ∈ <span className="syntax-variable">ICP.Roles</span> <span className="syntax-comment">(or list empty)</span></div>
           </div>
           <div className="icp-condition-list">
             {[
-              { icon: Building2, label: 'Industry match', detail: 'Company industry matches a target vertical.' },
-              { icon: Users, label: 'Headcount in range', detail: 'Employee count is between the configured bounds.' },
-              { icon: MapPin, label: 'Geography match', detail: 'Company location matches a target geography.' },
-              { icon: BriefcaseBusiness, label: 'Role match', detail: 'Contact role matches a target decision-maker role.' },
+              { icon: Building2, label: 'Industry match', detail: 'Matches a target vertical; an empty list skips this check.' },
+              { icon: Users, label: 'Headcount check', detail: 'Must be in range. Unknown counts pass pending enrichment.' },
+              { icon: MapPin, label: 'Geography match', detail: 'Matches a target country; an empty list skips this check.' },
+              { icon: BriefcaseBusiness, label: 'Role match', detail: 'Matches a target persona; an empty list skips this check.' },
             ].map(({ icon: Icon, label, detail }, index) => (
               <div className="icp-condition" key={label}>
                 <span className="icp-condition-icon"><Icon size={15} /></span>
@@ -280,15 +280,15 @@ export default function IcpSettingsPage() {
       <section className="icp-guarantees" aria-label="Qualification guarantees">
         <Panel className="icp-guarantee-card">
           <span className="icp-guarantee-icon"><ShieldCheck size={16} /></span>
-          <div><strong>Zero LLM hallucinations</strong><p>Basic qualification is decided by configured rules, not generated interpretations.</p></div>
+          <div><strong>Four explicit checks</strong><p>Industry, headcount, geography, and role determine the qualification result.</p></div>
         </Panel>
         <Panel className="icp-guarantee-card">
           <span className="icp-guarantee-icon"><CheckCircle2 size={16} /></span>
-          <div><strong>100% deterministic</strong><p>The same inputs produce the same result with itemized audit reasons.</p></div>
+          <div><strong>Unknown size is provisional</strong><p>A missing employee count passes this check while enrichment is pending.</p></div>
         </Panel>
         <Panel className="icp-guarantee-card">
           <span className="icp-guarantee-icon"><SlidersHorizontal size={16} /></span>
-          <div><strong>Sub-millisecond execution</strong><p>0.02 ms median · 0.24 ms p99 execution latency.</p></div>
+          <div><strong>Explainable decisions</strong><p>Each check records its result and a reason for the qualification outcome.</p></div>
         </Panel>
       </section>
 
@@ -296,26 +296,23 @@ export default function IcpSettingsPage() {
         <div className="icp-section-heading">
           <div>
             <h2 id="icp-flow-title">Qualification decision flow</h2>
-            <p>Deterministic profile checks run first; the score threshold controls outreach eligibility.</p>
+            <p>All four checks must pass for ICP qualification. The outreach score threshold is configured separately.</p>
           </div>
-          <span className="icp-flow-legend"><i /> Deterministic rules <b /> Score gate</span>
         </div>
         <Panel className="icp-flow-panel">
           <div className="icp-flow-steps">
             {[
               { label: 'Prospect data', type: 'input' },
               { label: 'Industry check', type: 'rule' },
-              { label: 'Employee count', type: 'rule' },
+              { label: 'Headcount check', type: 'rule' },
               { label: 'Geography check', type: 'rule' },
-              { label: 'Decision-maker role', type: 'rule' },
-              { label: 'Score threshold', type: 'score' },
-              { label: 'Outreach eligible', type: 'output' },
+              { label: 'Role check', type: 'rule' },
+              { label: 'ICP qualification', type: 'output' },
             ].map((step, index, steps) => (
               <div className="icp-flow-step-wrap" key={step.label}>
                 <div className={`icp-flow-step ${step.type}`}>
                   <span>{step.type === 'score' ? <Gauge size={15} /> : step.type === 'output' ? <CheckCircle2 size={15} /> : step.type === 'input' ? <Target size={15} /> : <Check size={15} />}</span>
                   <strong>{step.label}</strong>
-                  {step.type === 'score' && <small>{minScoreThreshold === '' ? '—' : minScoreThreshold} / 100 minimum</small>}
                 </div>
                 {index < steps.length - 1 && <ArrowRight className="icp-flow-arrow" size={15} aria-hidden="true" />}
               </div>

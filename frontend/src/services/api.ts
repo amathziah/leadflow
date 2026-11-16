@@ -18,7 +18,7 @@ async function request<T = any>(path: string, init?: RequestInit): Promise<T> {
 
   const json = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error(json?.message || json?.error || `Request failed (HTTP ${res.status})`);
+    throw new Error(json?.message || json?.error?.message || json?.error || `Request failed (HTTP ${res.status})`);
   }
   return json as T;
 }
@@ -47,8 +47,8 @@ export interface CompanySignalItem {
 
 export interface ResearchDossierItem {
   summary: string;
-  painPoints: any[];
-  strategicSignals: any[];
+  painPoints: Array<string | { area?: string; description?: string; evidence?: string }>;
+  strategicSignals: Array<{ signal?: string; relevance?: string; confidence?: number }>;
   qualificationReasons: string[];
   confidenceScore: number;
   generatedAt?: string;
@@ -330,12 +330,11 @@ export interface ExecutionLog {
 export const api = {
   // Discovery & Ingest
   async importCsv(csvContent: string, autoProcess = true) {
-    const res = await fetch(`${API_BASE}/import/csv`, {
+    return request('/import/csv', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ csvContent, autoProcess }),
     });
-    return res.json();
   },
 
   // ICP
@@ -361,14 +360,12 @@ export const api = {
     if (params?.search) query.append('search', params.search);
     if (params?.minScore) query.append('minScore', String(params.minScore));
 
-    const res = await fetch(`${API_BASE}/leads?${query.toString()}`);
-    const json = await res.json();
+    const json = await request<{ data?: LeadItem[] }>(`/leads?${query.toString()}`);
     return json.data || [];
   },
 
   async fetchLead360(id: string): Promise<Lead360Data> {
-    const res = await fetch(`${API_BASE}/leads/${id}/360`);
-    const json = await res.json();
+    const json = await request<{ data: Lead360Data }>(`/leads/${id}/360`);
     return json.data;
   },
 
@@ -398,8 +395,7 @@ export const api = {
   },
 
   async runPipeline(id: string) {
-    const res = await fetch(`${API_BASE}/leads/${id}/pipeline`, { method: 'POST' });
-    return res.json();
+    return request(`/leads/${id}/pipeline`, { method: 'POST' });
   },
 
   // Human Review & Outreach
@@ -434,18 +430,16 @@ export const api = {
 
   // Response Simulation & Feedback
   async submitResponse(leadId: string, rawContent: string, messageId?: string) {
-    const res = await fetch(`${API_BASE}/leads/${leadId}/response`, {
+    return request(`/leads/${leadId}/response`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rawContent, messageId }),
     });
-    return res.json();
   },
 
   // Lead Memory Timeline
   async fetchLeadTimeline(id: string) {
-    const res = await fetch(`${API_BASE}/leads/${id}/timeline`);
-    const json = await res.json();
+    const json = await request<{ data: any }>(`/leads/${id}/timeline`);
     return json.data;
   },
 

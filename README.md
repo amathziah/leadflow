@@ -26,6 +26,13 @@ flowchart LR
 
 The full pipeline is asynchronous. A lead that fails deterministic ICP checks stops before AI enrichment and research. Drafts enter a review queue; the server refuses delivery unless a draft is approved, and only records it as sent after the SMTP transport accepts it.
 
+## Engineering highlights
+
+- **Dependency-free qualification evaluation:** Tier 1 is a deterministic CI evaluation harness that runs without a database, network, or model key. The checked-in report measured p99 latency at 0.2208 ms; results are repeatable regression checks against a small, hand-labelled dataset.
+- **More precise ICP matching:** Token-aware industry and role checks replaced substring matching that accepted adjacent verticals and support roles. The evaluation dataset has 20 labelled cases, including 5 adversarial cases; the first run's precision improved from 64% to 100%. This is a regression result for that dataset, not a production accuracy guarantee.
+- **Visible AI degradation:** Model-generated output carries provenance so deterministic fallback output is not mistaken for a successful model response. Model names use environment-overridable aliases with `latest` defaults; exact versions can still be pinned when reproducibility is required.
+- **Send-before-state-update delivery:** Outreach can be dispatched only after approval. The backend sends through SMTP first and advances the message to `SENT` only after the mail transport accepts it, avoiding a false sent record when delivery setup or submission fails.
+
 ## Screenshots
 
 ### Lead intelligence

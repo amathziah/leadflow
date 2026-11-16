@@ -1,31 +1,35 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import { api } from '../services/api';
 import type { LeadItem, Lead360Data } from '../services/api';
 import PageHeader from '../components/ui/PageHeader';
-import Panel from '../components/ui/Panel';
-import AgentRunTrace from '../components/AgentRunTrace';
+import LeadCard from '../components/lead-pipeline/LeadCard';
+import LeadDossier from '../components/lead-pipeline/LeadDossier';
+import CsvImportDialog from '../components/lead-pipeline/CsvImportDialog';
 import {
-  Filter,
-  Search,
-  Sparkles,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  ArrowRight,
-  TrendingUp,
+  AlertCircle,
   Building2,
-  MapPin,
-  Users,
-  ShieldCheck,
-  Send,
-  RefreshCw,
-  Cpu,
+  CheckCircle2,
+  Clock3,
   FileSpreadsheet,
-  Globe,
-  DollarSign,
-  Zap,
-  ExternalLink,
+  RefreshCw,
+  Search,
+  Send,
+  Users,
 } from 'lucide-react';
+
+const STATUS_FILTERS = [
+  ['ALL', 'All leads'],
+  ['CANDIDATE', 'Candidate'],
+  ['QUALIFIED', 'Qualified'],
+  ['OUTREACH_READY', 'Outreach ready'],
+  ['OUTREACH_SENT', 'Outreach sent'],
+  ['RESPONDED', 'Responded'],
+  ['DISQUALIFIED', 'Disqualified'],
+] as const;
+
+const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 export default function LeadPipelinePage({
   onOpenOutreachReview,
@@ -36,598 +40,304 @@ export default function LeadPipelinePage({
   const [loading, setLoading] = useState(true);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [lead360, setLead360] = useState<Lead360Data | null>(null);
-  const [loading360, setLoading360] = useState(false);
+  const [settledLead360Id, setSettledLead360Id] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
   const [csvText, setCsvText] = useState('');
+  const [importing, setImporting] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const selectedLeadIdRef = useRef<string | null>(null);
+  const statusFilterRef = useRef(statusFilter);
+  const appliedSearchRef = useRef(appliedSearch);
+  const cancelPipelineRef = useRef<(() => void) | null>(null);
 
-  const loadLeads = async () => {
-    try {
-      setLoading(true);
-      const data = await api.fetchLeads({
-        status: statusFilter,
-        search: searchQuery,
-      });
-      setLeads(data);
-      if (data.length > 0 && !selectedLeadId) {
-        handleSelectLead(data[0].id);
-      }
-    } catch (err) {
-      console.error('Failed to load leads:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const activeLeadId = selectedLeadId && leads.some((lead) => lead.id === selectedLeadId)
+    ? selectedLeadId
+    : leads[0]?.id ?? null;
+  const visibleLead360 = lead360?.lead.id === activeLeadId ? lead360 : null;
+  const loading360 = Boolean(activeLeadId && settledLead360Id !== activeLeadId);
+
+  useEffect(() => { selectedLeadIdRef.current = activeLeadId; }, [activeLeadId]);
+  useEffect(() => {
+    statusFilterRef.current = statusFilter;
+    appliedSearchRef.current = appliedSearch;
+  }, [statusFilter, appliedSearch]);
+  useEffect(() => () => cancelPipelineRef.current?.(), []);
 
   useEffect(() => {
-    loadLeads();
-  }, [statusFilter]);
+    let cancelled = false;
+    const fetchLeads = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await api.fetchLeads({ status: statusFilter, search: appliedSearch });
+        if (!cancelled) setLeads(data);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load leads.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void fetchLeads();
+    return () => { cancelled = true; };
+  }, [statusFilter, appliedSearch, reloadKey]);
 
-  const handleSelectLead = async (id: string) => {
-    setSelectedLeadId(id);
-    try {
-      setLoading360(true);
-      const data = await api.fetchLead360(id);
-      setLead360(data);
-    } catch (err) {
-      console.error('Failed to load lead 360:', err);
-    } finally {
-      setLoading360(false);
-    }
+  useEffect(() => {
+    if (!activeLeadId) return;
+    let cancelled = false;
+    api.fetchLead360(activeLeadId)
+      .then((data) => {
+        if (!cancelled) {
+          setLead360(data);
+          setSettledLead360Id(activeLeadId);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setLead360(null);
+          setSettledLead360Id(activeLeadId);
+          setError(err instanceof Error ? err.message : 'Could not load the lead dossier.');
+        }
+      });
+    return () => { cancelled = true; };
+  }, [activeLeadId]);
+
+  const refreshLeads = () => setReloadKey((key) => key + 1);
+
+  const handleSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setAppliedSearch(searchQuery.trim());
   };
 
   const handleImportCsv = async () => {
-    if (!csvText.trim()) return;
+    if (!csvText.trim() || importing) return;
+    setImporting(true);
+    setError(null);
+    setNotice(null);
     try {
-      setLoading(true);
-      await api.importCsv(csvText, true);
+      const result = await api.importCsv(csvText, true);
+      if (!result?.success) throw new Error(result?.error || 'CSV import failed.');
       setIsCsvModalOpen(false);
       setCsvText('');
-      await loadLeads();
+      setNotice(`Import complete. ${result?.data?.createdLeadIds?.length ?? 'New'} lead(s) queued for processing.`);
+      refreshLeads();
     } catch (err) {
-      console.error('Failed to import CSV:', err);
+      setError(err instanceof Error ? err.message : 'CSV import failed.');
     } finally {
-      setLoading(false);
+      setImporting(false);
     }
   };
 
-  const handleRunPipeline = async (id: string, e?: React.MouseEvent) => {
-    e?.stopPropagation();
+  const handleRunPipeline = async (id: string) => {
+    if (processingId) return;
+    setProcessingId(id);
+    selectedLeadIdRef.current = id;
+    setSelectedLeadId(id);
+    setError(null);
+    setNotice(null);
+    let cancelled = false;
+    cancelPipelineRef.current = () => { cancelled = true; };
     try {
-      setProcessingId(id);
       const queued = await api.runPipeline(id);
       if (!queued?.success || !queued?.data?.jobId) {
         throw new Error(queued?.error || queued?.message || 'The pipeline could not be queued.');
       }
       const jobId = queued.data.jobId as string;
-      const pollForProgress = async () => {
-        await new Promise((resolve) => setTimeout(resolve, 1400));
-        await loadLeads();
-        if (selectedLeadId === id) {
-          try {
-            const latestTrace = await api.fetchLead360(id);
-            setLead360(latestTrace);
-            const run = latestTrace.agentTrace.runs.find((item) => item.id === jobId);
-            if (run && ['WAITING', 'ACTIVE'].includes(run.status)) {
-              setTimeout(pollForProgress, 1400);
-              return;
-            }
-          } catch (traceError) {
-            console.error('Failed to refresh agent run trace:', traceError);
-          }
+      setNotice('Pipeline queued. Qualification, enrichment, scoring, research, and outreach will appear here as they complete.');
+      let finished = false;
+
+      // Keep refreshing the selected lead while this job is active so its trace
+      // and the list reflect completed stages without a manual page refresh.
+      for (let attempt = 0; attempt < 150; attempt += 1) {
+        await wait(1400);
+        if (cancelled) break;
+        const [latest, latestLeads] = await Promise.all([
+          api.fetchLead360(id),
+          api.fetchLeads({ status: statusFilterRef.current, search: appliedSearchRef.current }),
+        ]);
+        if (selectedLeadIdRef.current === id) setLead360(latest);
+        setLeads(latestLeads);
+        const run = latest.agentTrace.runs.find((item) => item.id === jobId);
+        if (run && !['WAITING', 'ACTIVE'].includes(run.status)) {
+          finished = true;
+          setNotice(run.status === 'COMPLETED' ? 'Pipeline completed successfully.' : `Pipeline finished with status ${run.status}. See the run trace for details.`);
+          break;
         }
-        setProcessingId(null);
-      };
-      setTimeout(pollForProgress, 900);
+      }
+      if (!cancelled && !finished) setNotice('The pipeline is still running. Refresh the lead trace shortly for the latest stage updates.');
     } catch (err) {
-      console.error('Pipeline error:', err);
-      setProcessingId(null);
+      if (!cancelled) setError(err instanceof Error ? err.message : 'Pipeline could not be run.');
+    } finally {
+      if (!cancelled) {
+        setProcessingId(null);
+        cancelPipelineRef.current = null;
+      }
     }
   };
 
-  const getScoreColor = (score: number | null) => {
-    if (score === null) return 'text-slate-600 bg-slate-100 border-slate-200';
-    if (score >= 85) return 'text-emerald-700 bg-emerald-50 border-emerald-200';
-    if (score >= 70) return 'text-amber-700 bg-amber-50 border-amber-200';
-    return 'text-rose-700 bg-rose-50 border-rose-200';
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'QUALIFIED':
-        return <span className="badge badge-success"><CheckCircle2 size={12} className="mr-1" /> Qualified</span>;
-      case 'DISQUALIFIED':
-        return <span className="badge badge-danger"><XCircle size={12} className="mr-1" /> Disqualified</span>;
-      case 'OUTREACH_READY':
-      case 'OUTREACH_PENDING_APPROVAL':
-        return <span className="badge badge-warning"><Clock size={12} className="mr-1" /> Review Ready</span>;
-      case 'OUTREACH_SENT':
-        return <span className="badge badge-primary"><Send size={12} className="mr-1" /> Dispatched</span>;
-      case 'RESPONDED':
-        return <span className="badge badge-accent"><Sparkles size={12} className="mr-1" /> Responded</span>;
-      default:
-        return <span className="badge badge-neutral">Candidate</span>;
-    }
-  };
-
-  // Quick stats computed from current leads list
-  const totalCount = leads.length;
-  const qualifiedCount = leads.filter((l) => l.status === 'QUALIFIED').length;
-  const reviewCount = leads.filter((l) => l.status === 'OUTREACH_READY' || l.status === 'OUTREACH_PENDING_APPROVAL').length;
-  const dispatchedCount = leads.filter((l) => l.status === 'OUTREACH_SENT' || l.status === 'RESPONDED').length;
+  const qualifiedCount = leads.filter((lead) => lead.status === 'QUALIFIED').length;
+  const reviewCount = leads.filter((lead) => ['OUTREACH_READY', 'OUTREACH_PENDING_APPROVAL'].includes(lead.status)).length;
+  const sentCount = leads.filter((lead) => ['OUTREACH_SENT', 'RESPONDED'].includes(lead.status)).length;
 
   return (
-    <div className="lead-pipeline-page">
-      {/* Header Bar */}
+    <div className="lead-intelligence-page">
       <PageHeader
-        eyebrow="Pipeline engine"
+        eyebrow="Prospecting workspace"
         title="Lead intelligence"
-        description="Find, qualify, and research the companies most likely to become customers."
+        description="Review account fit, inspect the evidence, and run the research pipeline for each lead."
         icon={Building2}
-        actions={<>
-          <button onClick={() => setIsCsvModalOpen(true)} className="btn btn-secondary btn-sm">
-            <FileSpreadsheet size={14} /> Import CSV
-          </button>
-          <button onClick={loadLeads} className="btn btn-ghost btn-icon" title="Refresh">
-            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} style={{ color: 'var(--text-muted)' }} />
-          </button>
-        </>}
+        actions={(
+          <div className="li-header-actions">
+            <button type="button" onClick={() => setIsCsvModalOpen(true)} className="btn btn-primary">
+              <FileSpreadsheet size={16} /> Import CSV
+            </button>
+            <button type="button" onClick={refreshLeads} disabled={loading} className="btn btn-secondary li-refresh-button">
+              <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Refresh
+            </button>
+          </div>
+        )}
       />
 
-      {/* Quick Stats */}
-      <div className="stats-grid" style={{ marginBottom: 20 }}>
-        <Panel className="stat-card">
-          <div className="stat-label">Total Leads</div>
-          <div className="stat-value">{totalCount}</div>
-        </Panel>
-        <Panel className="stat-card">
-          <div className="stat-label">Qualified</div>
-          <div className="stat-value" style={{ color: 'var(--success)' }}>{qualifiedCount}</div>
-        </Panel>
-        <Panel className="stat-card">
-          <div className="stat-label">Pending Review</div>
-          <div className="stat-value" style={{ color: 'var(--warning)' }}>{reviewCount}</div>
-        </Panel>
-        <Panel className="stat-card">
-          <div className="stat-label">Dispatched</div>
-          <div className="stat-value" style={{ color: 'var(--brand)' }}>{dispatchedCount}</div>
-        </Panel>
-      </div>
-
-      {/* Filter and Search Bar */}
-      <div className="filter-bar">
-        <div className="search-bar" style={{ flex: 1, maxWidth: 440 }}>
-          <Search size={14} style={{ color: 'var(--text-subtle)', flexShrink: 0 }} />
-          <input
-            type="text"
-            placeholder="Search company, contact, role..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && loadLeads()}
-          />
+      {(error || notice) && (
+        <div className={`li-banner ${error ? 'is-error' : 'is-info'}`} role={error ? 'alert' : 'status'}>
+          {error ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+          <span>{error || notice}</span>
+          <button type="button" onClick={() => { setError(null); setNotice(null); }} aria-label="Dismiss message">×</button>
         </div>
+      )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          {['ALL', 'CANDIDATE', 'QUALIFIED', 'OUTREACH_READY', 'OUTREACH_SENT', 'RESPONDED', 'DISQUALIFIED'].map((s) => (
+      <section className="li-metrics" aria-label="Lead summary">
+        <Metric icon={Users} label="Leads in view" value={leads.length} />
+        <Metric icon={CheckCircle2} label="Qualified" value={qualifiedCount} />
+        <Metric icon={Clock3} label="Pending review" value={reviewCount} />
+        <Metric icon={Send} label="Dispatched" value={sentCount} />
+      </section>
+
+      <section className="li-controls" aria-label="Lead filters">
+        <form className="li-search" onSubmit={handleSearch} role="search">
+          <Search size={16} aria-hidden="true" />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search company, contact, or role"
+            aria-label="Search leads"
+          />
+          {searchQuery && (
+            <button type="button" className="li-clear-search" onClick={() => { setSearchQuery(''); setAppliedSearch(''); }} aria-label="Clear search">×</button>
+          )}
+          <button type="submit" className="btn btn-secondary li-search-submit">Search</button>
+        </form>
+        <div className="li-filter-row" role="group" aria-label="Filter leads by status">
+          {STATUS_FILTERS.map(([value, label]) => (
             <button
-              key={s}
-              className={`filter-chip ${statusFilter === s ? 'active' : ''}`}
-              onClick={() => setStatusFilter(s)}
+              key={value}
+              type="button"
+              className={`li-filter ${statusFilter === value ? 'is-active' : ''}`}
+              aria-pressed={statusFilter === value}
+              onClick={() => setStatusFilter(value)}
             >
-              {s.replace(/_/g, ' ')}
+              {label}
             </button>
           ))}
         </div>
-      </div>
+      </section>
 
-      {/* Main Grid: Left List + Right Lead 360 */}
-      <div className="pipeline-grid">
-        {/* Left Column: Lead Cards */}
-        <div className="leads-list-column">
-          {!loading && leads.length > 0 && (
-            <div className="lead-list-heading">
-              <div>
-                <h2>Leads</h2>
-                <span>Choose a company to open its dossier</span>
-              </div>
-              <span className="lead-list-count">{leads.length}</span>
-            </div>
-          )}
-          {loading && leads.length === 0 ? (
-            <div className="empty-state">
-              <RefreshCw size={28} className="animate-spin text-blue-600 mb-2" />
-              <p className="text-sm font-medium text-slate-700">Loading candidate leads...</p>
-            </div>
-          ) : leads.length === 0 ? (
-            <div className="empty-state">
-              <Building2 size={36} className="text-slate-400 mb-3" />
-              <h3 className="text-base font-semibold text-slate-800">No leads found</h3>
-              <p className="text-xs text-slate-500 max-w-sm mt-1 mb-4">
-                Import a CSV of companies or adjust your search filter to populate the pipeline.
-              </p>
-              <button onClick={() => setIsCsvModalOpen(true)} className="btn btn-primary text-xs">
-                <FileSpreadsheet size={13} /> Import CSV
-              </button>
-            </div>
-          ) : (
-            leads.map((lead) => {
-              const isSelected = selectedLeadId === lead.id;
-              const isProcessing = processingId === lead.id;
-
-              return (
-                <div
+      <section className="li-workspace" aria-label="Lead list and details">
+        <div className="li-list-panel">
+          <header className="li-list-header">
+            <div><span className="li-kicker">Accounts</span><h2>Lead list</h2></div>
+            <span className="li-count">{loading ? '…' : leads.length}</span>
+          </header>
+          <div className="li-list-body">
+            {loading && leads.length === 0 ? (
+              <InlineState icon={RefreshCw} title="Loading leads" detail="Fetching your current pipeline…" loading />
+            ) : leads.length === 0 ? (
+              <InlineState
+                icon={Building2}
+                title={appliedSearch || statusFilter !== 'ALL' ? 'No matching leads' : 'Your lead list is empty'}
+                detail={appliedSearch || statusFilter !== 'ALL' ? 'Try another search or status filter.' : 'Import a CSV to add companies and contacts to the workspace.'}
+                action={!appliedSearch && statusFilter === 'ALL' ? <button type="button" className="btn btn-primary" onClick={() => setIsCsvModalOpen(true)}><FileSpreadsheet size={15} /> Import CSV</button> : undefined}
+              />
+            ) : (
+              leads.map((lead) => (
+                <LeadCard
                   key={lead.id}
-                  className={`lead-card ${isSelected ? 'selected' : ''}`}
-                  onClick={() => handleSelectLead(lead.id)}
-                  role="button"
-                  tabIndex={0}
-                  aria-pressed={isSelected}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      handleSelectLead(lead.id);
-                    }
-                  }}
-                >
-                  {/* Identity row */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-xs text-slate-700 shrink-0">
-                          {lead.companyName?.slice(0, 2).toUpperCase()}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <h4
-                            className="font-semibold text-slate-900 text-sm truncate"
-                            title={lead.companyName}
-                          >
-                            {lead.companyName}
-                          </h4>
-                          <p
-                            className="text-xs text-slate-600 font-medium truncate"
-                            title={`${lead.fullName || 'Target Lead'}${lead.role ? ` · ${lead.role}` : ''}`}
-                          >
-                            {lead.fullName || 'Target Lead'}
-                            {lead.role && <span className="text-slate-400 font-normal"> · {lead.role}</span>}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <div
-                        className={`score-badge border px-2 py-0.5 rounded-full font-bold text-xs whitespace-nowrap ${getScoreColor(lead.leadScore)}`}
-                      >
-                        {lead.leadScore !== null ? `${lead.leadScore}/100` : 'Unscored'}
-                      </div>
-                      {getStatusBadge(lead.status)}
-                    </div>
-                  </div>
-
-                  {/* Attributes & Signals preview */}
-                  <div className="card-attributes mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-3 text-xs text-slate-500">
-                    <div className="flex items-center gap-3 min-w-0 overflow-hidden">
-                      {lead.company?.country && (
-                        <span className="flex items-center gap-1 whitespace-nowrap">
-                          <MapPin size={11} className="text-slate-400" /> {lead.company.country}
-                        </span>
-                      )}
-                      {lead.company?.employeeCount && (
-                        <span className="flex items-center gap-1 whitespace-nowrap">
-                          <Users size={11} className="text-slate-400" /> {lead.company.employeeCount.toLocaleString()}
-                        </span>
-                      )}
-                      {lead.industry && <span className="truncate text-slate-600">{lead.industry}</span>}
-                      {lead.company?.fundingStage && (
-                        <span className="text-emerald-700 font-medium whitespace-nowrap bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 text-[10.5px]">
-                          {lead.company.fundingStage}
-                        </span>
-                      )}
-                    </div>
-
-                    <button
-                      onClick={(e) => handleRunPipeline(lead.id, e)}
-                      disabled={isProcessing}
-                      className="text-blue-600 hover:text-blue-700 font-semibold text-xs flex items-center gap-1 shrink-0 whitespace-nowrap disabled:opacity-60 transition-colors"
-                      title="Enrich, detect signals, qualify, score, research and draft outreach"
-                    >
-                      {isProcessing ? (
-                        <>
-                          <RefreshCw size={11} className="animate-spin" /> Processing...
-                        </>
-                      ) : (
-                        <>
-                          <Cpu size={11} /> Run Pipeline
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Signal pills */}
-                  {lead.company?.signals && lead.company.signals.length > 0 && (
-                    <div className="signal-mini-tags mt-2.5 flex flex-wrap gap-1.5">
-                      {lead.company.signals.slice(0, 2).map((sig) => (
-                        <span key={sig.id} className="signal-pill flex items-center gap-1">
-                          <Zap size={10} className="text-amber-600 shrink-0" />
-                          <span>{sig.headline.slice(0, 36)}...</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {/* Right Column: Lead 360 View */}
-        <div className="lead-360-column">
-          {loading360 ? (
-            <div className="empty-state">
-              <RefreshCw size={32} className="animate-spin text-blue-600 mb-2" />
-              <p className="text-sm font-medium text-slate-700">Synthesizing Lead 360 Intelligence...</p>
-            </div>
-          ) : !lead360 ? (
-            <div className="empty-state">
-              <Cpu size={40} className="text-slate-400 mb-3" />
-              <h3 className="text-base font-semibold text-slate-800">Select a lead to inspect 360° dossier</h3>
-              <p className="text-xs text-slate-500 max-w-sm mt-1">
-                View deterministic qualification rules, multi-factor score breakdown, verified evidence, and AI outreach drafts.
-              </p>
-            </div>
-          ) : (
-            <div className="lead-360-container space-y-4">
-              {/* Profile Header Card */}
-              <Panel className="dossier-card">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2.5">
-                      <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                        {lead360.lead.companyName}
-                      </h2>
-                      <span className="text-xs px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-medium">
-                        {lead360.lead.industry || 'B2B SaaS'}
-                      </span>
-                    </div>
-                    <p className="text-slate-700 font-medium text-sm mt-1">
-                      {lead360.lead.fullName} — <span className="text-blue-600 font-semibold">{lead360.lead.role}</span>
-                    </p>
-                    <div className="flex flex-wrap items-center gap-3.5 text-xs text-slate-500 mt-2.5">
-                      {lead360.lead.country && (
-                        <span className="flex items-center gap-1">
-                          <MapPin size={12} className="text-slate-400" /> {lead360.lead.country}
-                        </span>
-                      )}
-                      {lead360.lead.employeeCount && (
-                        <span className="flex items-center gap-1">
-                          <Users size={12} className="text-slate-400" /> {lead360.lead.employeeCount} Employees
-                        </span>
-                      )}
-                      {lead360.lead.fundingStage && (
-                        <span className="flex items-center gap-1 text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                          <DollarSign size={11} /> {lead360.lead.fundingStage}
-                        </span>
-                      )}
-                      {lead360.lead.website && (
-                        <a
-                          href={lead360.lead.website}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1"
-                        >
-                          <Globe size={11} /> {lead360.lead.website.replace('https://', '')}
-                          <ExternalLink size={10} />
-                        </a>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="text-right shrink-0">
-                    <div className={`score-badge-large ${getScoreColor(lead360.score.totalScore)}`}>
-                      <span className="text-2xl font-black">{lead360.score.totalScore ?? '—'}</span>
-                      <span className="text-xs font-semibold opacity-80">/ 100</span>
-                    </div>
-                    <div className="text-[11px] text-slate-400 mt-1 font-mono">
-                      v{lead360.score.formulaVersion}
-                    </div>
-                  </div>
-                </div>
-              </Panel>
-
-              <AgentRunTrace
-                events={lead360.agentTrace.events}
-                runs={lead360.agentTrace.runs}
-                qualification={lead360.agentTrace.qualification}
-                enrichment={lead360.agentTrace.enrichment}
-                signals={lead360.signals}
-                research={lead360.research}
-                score={lead360.score}
-                outreach={lead360.outreach}
-              />
-
-              {/* Explainable Scoring Breakdown */}
-              <div className="dossier-card">
-                <div className="lead-intel-panel-heading">
-                  <div className="lead-intel-panel-title">
-                    <span className="lead-intel-panel-icon success"><ShieldCheck size={16} /></span>
-                    <div>
-                      <h3>Deterministic & Multi-Factor Scoring Breakdown</h3>
-                      <p>See how qualification signals contribute to the account score.</p>
-                    </div>
-                  </div>
-                  {lead360.score.explanation?.length ? <span className="lead-intel-count">{lead360.score.explanation.length} factors</span> : <span className="lead-intel-state">Not scored</span>}
-                </div>
-                <div className="lead-intel-factor-grid">
-                  {lead360.score.explanation?.length ? (
-                    lead360.score.explanation.map((item, idx) => (
-                      <div key={idx} className="lead-intel-factor">
-                        <div className="lead-intel-factor-head">
-                          <span>{item.factor}</span>
-                          <span className="lead-intel-points">
-                            +{item.points} / {item.max} pts
-                          </span>
-                        </div>
-                        <p>{item.reason}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="lead-intel-empty">
-                      <span className="lead-intel-empty-icon"><ShieldCheck size={16} /></span>
-                      <div><strong>Scoring details aren’t available yet</strong><p>Run the pipeline for this lead to calculate and explain its score.</p></div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Verified Business Signals */}
-              <div className="dossier-card">
-                <div className="lead-intel-panel-heading">
-                  <div className="lead-intel-panel-title">
-                    <span className="lead-intel-panel-icon warning"><TrendingUp size={16} /></span>
-                    <div><h3>Verified Market Signals</h3><p>Evidence-backed events found for this company.</p></div>
-                  </div>
-                  <span className="lead-intel-count">{lead360.signals.length} {lead360.signals.length === 1 ? 'signal' : 'signals'}</span>
-                </div>
-                <div className="signals-grid lead-intel-signals">
-                  {lead360.signals.length === 0 ? (
-                    <div className="lead-intel-empty">
-                      <span className="lead-intel-empty-icon warning"><Zap size={16} /></span>
-                      <div><strong>No verified signals found</strong><p>Company signals will appear here after the next pipeline run.</p></div>
-                      <span className="lead-intel-state">Awaiting research</span>
-                    </div>
-                  ) : (
-                    lead360.signals.map((sig) => (
-                      <div key={sig.id} className="signal-card">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="signal-type-tag">{sig.type.replace('_', ' ')}</span>
-                          <span className="text-[11px] text-slate-500">
-                            Confidence: <strong className="text-emerald-700">{Math.round(sig.confidence * 100)}%</strong>
-                          </span>
-                        </div>
-                        <h4 className="font-semibold text-xs text-slate-800 mt-1.5">{sig.headline}</h4>
-                        {sig.detail && <p className="text-xs text-slate-600 mt-1">{sig.detail}</p>}
-                        <div className="source-footnote mt-2 text-[11px] text-slate-400">
-                          Source: <span className="font-medium text-slate-600">{sig.source}</span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* AI Research Agent Dossier */}
-              {lead360.research && (
-                <div className="dossier-card">
-                  <h3 className="section-title">
-                    <Cpu size={16} className="text-blue-600" />
-                    AI Research Agent Dossier (Confidence: {Math.round(lead360.research.confidenceScore * 100)}%)
-                  </h3>
-                  <p className="text-xs text-slate-700 mt-2.5 bg-slate-50 p-3 rounded-lg border border-slate-200 leading-relaxed">
-                    {lead360.research.summary}
-                  </p>
-
-                  {/* Pain points */}
-                  <div className="mt-3.5">
-                    <h5 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                      Identified Operational Pain Points:
-                    </h5>
-                    <div className="space-y-1.5 mt-2">
-                      {lead360.research.painPoints?.map((pp: any, i: number) => (
-                        <div key={i} className="text-xs p-2.5 rounded-lg bg-amber-50/60 border border-amber-200/80 text-slate-700">
-                          <strong className="text-amber-800 font-semibold">{pp.area || `Point ${i + 1}`}:</strong>{' '}
-                          {pp.description || pp}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Generated Outreach & Human Review CTA */}
-              <div className="dossier-card">
-                <div className="lead-intel-panel-heading">
-                  <div className="lead-intel-panel-title">
-                    <span className="lead-intel-panel-icon"><Send size={16} /></span>
-                    <div><h3>Signal-Grounded Outreach Draft</h3><p>Personalized copy grounded in the lead’s available evidence.</p></div>
-                  </div>
-                  {onOpenOutreachReview && (
-                    <button
-                      onClick={onOpenOutreachReview}
-                      className="lead-intel-review-link"
-                    >
-                      Human Review Center <ArrowRight size={13} />
-                    </button>
-                  )}
-                </div>
-
-                {lead360.outreach.length === 0 ? (
-                  <div className="lead-intel-empty outreach-empty">
-                    <span className="lead-intel-empty-icon"><Send size={16} /></span>
-                    <div><strong>No outreach draft yet</strong><p>Run the pipeline to create evidence-based copy for this lead.</p></div>
-                    <button
-                      type="button"
-                      className="btn btn-secondary lead-intel-run-button"
-                      onClick={(event) => selectedLeadId && handleRunPipeline(selectedLeadId, event)}
-                      disabled={!selectedLeadId || processingId === selectedLeadId}
-                    >
-                      {processingId === selectedLeadId ? <RefreshCw size={13} className="animate-spin" /> : <Cpu size={13} />}
-                      {processingId === selectedLeadId ? 'Running…' : 'Run pipeline'}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="outreach-preview-box mt-3">
-                    <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-200">
-                      <span className="font-semibold text-slate-800">
-                        Subject: {lead360.outreach[0].subject || 'Scaling Finance Operations'}
-                      </span>
-                      <span className="badge badge-warning">{lead360.outreach[0].state}</span>
-                    </div>
-                    <p className="text-xs text-slate-700 whitespace-pre-line mt-2.5 font-mono leading-relaxed bg-slate-50 p-3 rounded border border-slate-200">
-                      {lead360.outreach[0].body}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* CSV Import Modal */}
-      {isCsvModalOpen && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <div className="modal-header">
-              <div>
-                <p className="modal-title">Import Leads from CSV</p>
-                <p className="modal-desc">
-                  Columns: Company Name, Domain, Industry, Employees, Country, Role, Contact Name, Email
-                </p>
-              </div>
-            </div>
-            <div className="modal-body">
-              <textarea
-                className="form-textarea"
-                style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}
-                rows={7}
-                value={csvText}
-                onChange={(e) => setCsvText(e.target.value)}
-                placeholder={`Company Name,Domain,Industry,Employees,Country,Role,Contact Name,Email\nAcme Cloud,acmecloud.io,B2B SaaS,180,US,CFO,John Doe,john@acmecloud.io`}
-              />
-            </div>
-            <div className="modal-footer">
-              <button onClick={() => setIsCsvModalOpen(false)} className="btn btn-secondary btn-sm">
-                Cancel
-              </button>
-              <button onClick={handleImportCsv} className="btn btn-primary btn-sm" disabled={!csvText.trim()}>
-                <FileSpreadsheet size={13} /> Import & Process
-              </button>
-            </div>
+                  lead={lead}
+                  selected={activeLeadId === lead.id}
+                  processing={processingId === lead.id}
+                  disabled={processingId !== null}
+                  onSelect={() => setSelectedLeadId(lead.id)}
+                  onRun={() => handleRunPipeline(lead.id)}
+                />
+              ))
+            )}
           </div>
         </div>
+
+        <div className="li-detail-panel" aria-live="polite">
+          {loading360 ? (
+            <InlineState icon={RefreshCw} title="Loading lead dossier" detail="Gathering qualification, score, evidence, and activity." loading />
+          ) : visibleLead360 ? (
+            <LeadDossier
+              data={visibleLead360}
+              onRunPipeline={() => activeLeadId && handleRunPipeline(activeLeadId)}
+              processing={processingId === activeLeadId}
+              pipelineBusy={processingId !== null}
+              onOpenOutreachReview={onOpenOutreachReview}
+            />
+          ) : (
+            <InlineState icon={Building2} title="Select a lead" detail="Choose an account from the list to inspect its qualification, score, evidence, and agent activity." />
+          )}
+        </div>
+      </section>
+
+      {isCsvModalOpen && (
+        <CsvImportDialog
+          value={csvText}
+          busy={importing}
+          onChange={setCsvText}
+          onClose={() => !importing && setIsCsvModalOpen(false)}
+          onImport={handleImportCsv}
+        />
       )}
+    </div>
+  );
+}
+
+function Metric({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {
+  return (
+    <article className="li-metric">
+      <span className="li-metric-icon"><Icon size={16} /></span>
+      <div><span>{label}</span><strong>{value}</strong></div>
+    </article>
+  );
+}
+
+function InlineState({
+  icon: Icon,
+  title,
+  detail,
+  action,
+  loading = false,
+}: {
+  icon: LucideIcon;
+  title: string;
+  detail: string;
+  action?: ReactNode;
+  loading?: boolean;
+}) {
+  return (
+    <div className="li-state">
+      <span className="li-state-icon">{loading ? <Icon className="animate-spin" size={19} /> : <Icon size={19} />}</span>
+      <strong>{title}</strong>
+      <p>{detail}</p>
+      {action}
     </div>
   );
 }

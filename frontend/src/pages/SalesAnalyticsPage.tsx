@@ -11,7 +11,6 @@ import {
   CheckCircle2,
   Clock,
   Cpu,
-  DollarSign,
   RefreshCw,
   ShieldCheck,
   TrendingUp,
@@ -184,11 +183,11 @@ export default function SalesAnalyticsPage() {
 
         <Panel className="analytics-panel">
           <div className="analytics-panel-heading">
-            <div><span className="analytics-panel-icon"><Cpu size={16} /></span><div><h2>System reliability</h2><p>Pipeline operations and AI usage</p></div></div>
+            <div><span className="analytics-panel-icon"><Cpu size={16} /></span><div><h2>Worker activity</h2><p>Measured queue processing and retries</p></div></div>
           </div>
           <div className="analytics-system-grid">
-            <div className="analytics-system-metric"><span><Clock size={13} />Average pipeline latency</span><strong>{data.observability.averageLatencyMs}<small> ms</small></strong></div>
-            <div className="analytics-system-metric"><span><DollarSign size={13} />Estimated AI cost</span><strong>${data.observability.estimatedAiCostUSD}</strong></div>
+            <div className="analytics-system-metric"><span><Clock size={13} />Average job latency</span><strong>{data.observability.averageLatencyMs ?? '—'}{data.observability.averageLatencyMs !== null && <small> ms</small>}</strong></div>
+            <div className="analytics-system-metric"><span><RefreshCw size={13} />Worker retries</span><strong>{data.observability.retries}</strong></div>
             <div className="analytics-system-metric"><span><Cpu size={13} />Active queue</span><strong>{data.observability.activeQueueSize}<small> jobs</small></strong></div>
             <div className="analytics-system-metric"><span>{data.observability.dlq === 0 ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}Dead-letter queue</span><strong className={data.observability.dlq === 0 ? 'green-text' : 'red-text'}>{data.observability.dlq}<small> errors</small></strong></div>
           </div>

@@ -5,24 +5,21 @@ import PageHeader from '../components/ui/PageHeader';
 import Panel from '../components/ui/Panel';
 import {
   AlertCircle,
-  ArrowRight,
   BriefcaseBusiness,
   Building2,
   Check,
   CheckCircle2,
   Cpu,
   Globe2,
-  Gauge,
   MapPin,
   RefreshCw,
   Save,
   ShieldCheck,
-  SlidersHorizontal,
   Target,
   Users,
 } from 'lucide-react';
 
-type FieldErrors = Partial<Record<'name' | 'minEmployees' | 'maxEmployees' | 'score', string>>;
+type FieldErrors = Partial<Record<'name' | 'minEmployees' | 'maxEmployees', string>>;
 type NumericInput = number | '';
 
 function TokenPreview({ value }: { value: string }) {
@@ -52,7 +49,6 @@ export default function IcpSettingsPage() {
   const [countries, setCountries] = useState('');
   const [roles, setRoles] = useState('');
   const [technologies, setTechnologies] = useState('');
-  const [minScoreThreshold, setMinScoreThreshold] = useState<NumericInput>(70);
 
   useEffect(() => {
     const loadIcp = async () => {
@@ -68,7 +64,6 @@ export default function IcpSettingsPage() {
           setCountries(res.active.targetCountries.join(', '));
           setRoles(res.active.targetRoles.join(', '));
           setTechnologies(res.active.requiredTechnologies.join(', '));
-          setMinScoreThreshold(res.active.minScoreThreshold);
         }
       } catch (error) {
         console.error('Failed to load ICP profile:', error);
@@ -87,10 +82,6 @@ export default function IcpSettingsPage() {
   if (!errors.minEmployees && !errors.maxEmployees && Number(minEmployees) > Number(maxEmployees)) {
     errors.maxEmployees = 'Maximum headcount must be at least the minimum.';
   }
-  if (minScoreThreshold === '' || !Number.isFinite(minScoreThreshold) || minScoreThreshold < 0 || minScoreThreshold > 100) {
-    errors.score = 'Score threshold must be between 0 and 100.';
-  }
-
   const handleSave = async () => {
     setValidationAttempted(true);
     if (!icp || Object.keys(errors).length > 0) return;
@@ -106,7 +97,6 @@ export default function IcpSettingsPage() {
         targetCountries: countries.split(',').map((value) => value.trim()).filter(Boolean),
         targetRoles: roles.split(',').map((value) => value.trim()).filter(Boolean),
         requiredTechnologies: technologies.split(',').map((value) => value.trim()).filter(Boolean),
-        minScoreThreshold: Number(minScoreThreshold),
       });
       setSaveStatus({ kind: 'success', text: 'ICP profile saved successfully.' });
       window.setTimeout(() => setSaveStatus(null), 3500);
@@ -137,7 +127,7 @@ export default function IcpSettingsPage() {
       <PageHeader
         eyebrow={<><span className="icp-status-dot" />Qualification Rules</>}
         title="Ideal Customer Profile"
-        description="Define the criteria that determine which companies qualify as ideal prospects for automated outreach."
+        description="Define the firmographic and role criteria used to qualify prospects."
         icon={Target}
         actions={(
           <button onClick={handleSave} disabled={saving} className="btn btn-primary icp-save-button" type="button">
@@ -160,7 +150,6 @@ export default function IcpSettingsPage() {
             <h2>Profile criteria</h2>
             <p>Set firmographic and role signals for an account to enter the qualified pipeline.</p>
           </div>
-          <span className="icp-required-note">All fields are editable</span>
         </div>
 
         <div className="icp-form-grid">
@@ -216,24 +205,10 @@ export default function IcpSettingsPage() {
           </div>
 
           <div className="icp-field">
-            <label htmlFor="icp-technologies"><Cpu size={14} />Required Technology Signatures</label>
+            <label htmlFor="icp-technologies"><Cpu size={14} />Technology Fit Targets</label>
             <input id="icp-technologies" className="form-input" type="text" placeholder="Salesforce, HubSpot, AWS, Shopify" value={technologies} onChange={(event) => setTechnologies(event.target.value)} />
             <TokenPreview value={technologies} />
-          </div>
-
-          <div className="icp-threshold full-width">
-            <div className="icp-threshold-copy">
-              <label htmlFor="icp-score-range"><Gauge size={15} />Minimum Score Threshold for Outreach</label>
-              <p>Only prospects meeting this score are eligible for outreach.</p>
-            </div>
-            <div className="icp-threshold-controls">
-              <input id="icp-score-range" type="range" min="0" max="100" step="1" value={minScoreThreshold === '' ? 0 : minScoreThreshold} onChange={(event) => setMinScoreThreshold(Number(event.target.value))} aria-label="Minimum score threshold" />
-              <div className="icp-score-input-wrap">
-                <input className="form-input" type="number" min="0" max="100" step="1" value={minScoreThreshold} onChange={(event) => setMinScoreThreshold(event.target.value === '' ? '' : Number(event.target.value))} aria-label="Minimum score threshold value" aria-invalid={Boolean(showError('score'))} aria-describedby={showError('score') ? 'icp-score-error' : undefined} />
-                <span>/ 100</span>
-              </div>
-              {showError('score') && <span className="icp-field-error" id="icp-score-error">{errors.score}</span>}
-            </div>
+            <span className="icp-field-help">Used in lead scoring only; a technology mismatch does not disqualify a lead.</span>
           </div>
         </div>
       </Panel>
@@ -243,78 +218,23 @@ export default function IcpSettingsPage() {
           <div>
             <span className="icp-section-kicker"><ShieldCheck size={14} />Transparent qualification</span>
             <h2 id="icp-engine-title">Deterministic Qualification Engine</h2>
-            <p>Four explicit checks determine ICP qualification. Empty target lists skip that check; missing employee counts pass provisionally.</p>
+            <p>All four checks must pass. Empty target lists skip that check; missing headcount passes provisionally.</p>
           </div>
         </div>
 
         <Panel className="icp-logic-panel">
-          <div className="icp-formula-label">QUALIFICATION FORMULA</div>
-          <div className="icp-formula" aria-label="Qualification formula">
-            <code><span className="syntax-function">IsQualified</span>(C, L) =</code>
-            <div><span className="syntax-keyword">IndustryMatch</span> = <span className="syntax-keyword">Industry</span> ∈ <span className="syntax-variable">ICP.Industries</span> <span className="syntax-comment">(or list empty)</span></div>
-            <strong>AND</strong>
-            <div><span className="syntax-keyword">SizeMatch</span> = <span className="syntax-keyword">Count</span> unknown <span className="syntax-keyword">OR</span> <span className="syntax-number">Min</span> ≤ <span className="syntax-keyword">Count</span> ≤ <span className="syntax-number">Max</span></div>
-            <strong>AND</strong>
-            <div><span className="syntax-keyword">GeoMatch</span> = <span className="syntax-keyword">Geo</span> ∈ <span className="syntax-variable">ICP.Countries</span> <span className="syntax-comment">(or list empty)</span></div>
-            <strong>AND</strong>
-            <div><span className="syntax-keyword">RoleMatch</span> = <span className="syntax-keyword">Role</span> ∈ <span className="syntax-variable">ICP.Roles</span> <span className="syntax-comment">(or list empty)</span></div>
-          </div>
           <div className="icp-condition-list">
             {[
-              { icon: Building2, label: 'Industry match', detail: 'Matches a target vertical; an empty list skips this check.' },
-              { icon: Users, label: 'Headcount check', detail: 'Must be in range. Unknown counts pass pending enrichment.' },
-              { icon: MapPin, label: 'Geography match', detail: 'Matches a target country; an empty list skips this check.' },
-              { icon: BriefcaseBusiness, label: 'Role match', detail: 'Matches a target persona; an empty list skips this check.' },
+              { icon: Building2, label: 'Industry match', detail: 'Normalized industry terms match a target vertical; an empty list skips this check.' },
+              { icon: Users, label: 'Headcount check', detail: 'The count is within the inclusive range. Unknown counts pass provisionally.' },
+              { icon: MapPin, label: 'Geography match', detail: 'The country matches a target geography; an empty list skips this check.' },
+              { icon: BriefcaseBusiness, label: 'Role match', detail: 'The title matches a target persona; support roles are rejected.' },
             ].map(({ icon: Icon, label, detail }, index) => (
               <div className="icp-condition" key={label}>
                 <span className="icp-condition-icon"><Icon size={15} /></span>
                 <span className="icp-condition-copy"><strong>{label}</strong><small>{detail}</small></span>
                 {index < 3 && <span className="icp-and">AND</span>}
                 {index === 3 && <Check size={16} className="icp-condition-check" aria-label="Final condition" />}
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </section>
-
-      <section className="icp-guarantees" aria-label="Qualification guarantees">
-        <Panel className="icp-guarantee-card">
-          <span className="icp-guarantee-icon"><ShieldCheck size={16} /></span>
-          <div><strong>Four explicit checks</strong><p>Industry, headcount, geography, and role determine the qualification result.</p></div>
-        </Panel>
-        <Panel className="icp-guarantee-card">
-          <span className="icp-guarantee-icon"><CheckCircle2 size={16} /></span>
-          <div><strong>Unknown size is provisional</strong><p>A missing employee count passes this check while enrichment is pending.</p></div>
-        </Panel>
-        <Panel className="icp-guarantee-card">
-          <span className="icp-guarantee-icon"><SlidersHorizontal size={16} /></span>
-          <div><strong>Explainable decisions</strong><p>Each check records its result and a reason for the qualification outcome.</p></div>
-        </Panel>
-      </section>
-
-      <section className="icp-flow-section" aria-labelledby="icp-flow-title">
-        <div className="icp-section-heading">
-          <div>
-            <h2 id="icp-flow-title">Qualification decision flow</h2>
-            <p>All four checks must pass for ICP qualification. The outreach score threshold is configured separately.</p>
-          </div>
-        </div>
-        <Panel className="icp-flow-panel">
-          <div className="icp-flow-steps">
-            {[
-              { label: 'Prospect data', type: 'input' },
-              { label: 'Industry check', type: 'rule' },
-              { label: 'Headcount check', type: 'rule' },
-              { label: 'Geography check', type: 'rule' },
-              { label: 'Role check', type: 'rule' },
-              { label: 'ICP qualification', type: 'output' },
-            ].map((step, index, steps) => (
-              <div className="icp-flow-step-wrap" key={step.label}>
-                <div className={`icp-flow-step ${step.type}`}>
-                  <span>{step.type === 'score' ? <Gauge size={15} /> : step.type === 'output' ? <CheckCircle2 size={15} /> : step.type === 'input' ? <Target size={15} /> : <Check size={15} />}</span>
-                  <strong>{step.label}</strong>
-                </div>
-                {index < steps.length - 1 && <ArrowRight className="icp-flow-arrow" size={15} aria-hidden="true" />}
               </div>
             ))}
           </div>

@@ -39,8 +39,6 @@ export class QueueService {
     retries: 0,
     deadLetterQueueCount: 0,
     totalLatencyMs: 0,
-    totalTokensUsed: 0,
-    estimatedCostUSD: 0.0,
   };
 
   /** Persist a best-effort lifecycle event without allowing observability to
@@ -329,9 +327,6 @@ export class QueueService {
           })
         );
 
-        // Track token usage metrics
-        this.metrics.totalTokensUsed += 2450;
-        this.metrics.estimatedCostUSD += 0.007;
         break;
       }
 
@@ -388,7 +383,7 @@ export class QueueService {
     const avgLatency =
       this.metrics.leadsProcessed > 0
         ? Math.round(this.metrics.totalLatencyMs / this.metrics.leadsProcessed)
-        : 350;
+        : null;
 
     return {
       activeQueueSize: statusCounts.WAITING + statusCounts.ACTIVE,
@@ -400,8 +395,6 @@ export class QueueService {
       retries: this.metrics.retries,
       leadsProcessed: this.metrics.leadsProcessed,
       averageLatencyMs: avgLatency,
-      totalTokensUsed: this.metrics.totalTokensUsed,
-      estimatedAiCostUSD: Number(this.metrics.estimatedCostUSD.toFixed(4)),
     };
   }
 }

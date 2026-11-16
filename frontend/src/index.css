@@ -1367,19 +1367,6 @@ body {
 .topbar-breadcrumb svg { color: var(--text-subtle); }
 .topbar-current { color: var(--text-primary); font-weight: 600; }
 .topbar-offline { padding: 6px 10px; font-size: 11px; }
-.account-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  background: var(--brand);
-  color: var(--bg-base);
-  font-size: 12px;
-  font-weight: 700;
-  box-shadow: none;
-}
 .page-content {
   padding: 30px 34px 48px;
   background: var(--bg-subtle);
@@ -1878,7 +1865,6 @@ body, .app-root, .main-area { background: var(--bg-subtle); color: var(--text-pr
 .page-eyebrow { color: var(--brand); }
 .page-title-row h1 { color: var(--text-primary); }
 .page-title-icon { background: var(--brand-subtle); color: var(--brand); border-color: var(--brand-border); }
-.account-avatar { background: var(--brand); color: #17191F; box-shadow: none; }
 
 .ui-panel, .dossier-card, .card, .stat-card, .detail-card, .lead-card, .signal-card,
 .review-panel, .reply-panel, .icp-panel, .analytics-panel {
@@ -2131,7 +2117,6 @@ strong, b { font-weight: 600; }
 
 .sidebar { background: var(--bg-sidebar) !important; }
 .sidebar-logo-icon { color: var(--text-secondary) !important; background: var(--bg-elevated) !important; }
-.account-avatar { color: var(--text-primary) !important; background: var(--bg-elevated) !important; }
 .page-eyebrow, .page-eyebrow:has(.icp-status-dot) { color: var(--text-secondary) !important; }
 .page-title-icon { color: var(--text-secondary) !important; background: var(--bg-elevated) !important; border-color: var(--border) !important; }
 .page-title-icon svg, .icp-status-dot, .icp-section-kicker, .icp-section-kicker svg,

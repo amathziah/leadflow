@@ -147,7 +147,7 @@ export default function App() {
         <div className="sidebar-footer">
           <div
             className="engine-card"
-            title={serverOnline ? 'Engine Online · Deterministic + Gemini' : 'Engine status'}
+            title={serverOnline ? 'Backend API is responding' : 'Backend API status'}
           >
             <span
               className={`engine-dot ${
@@ -160,12 +160,12 @@ export default function App() {
                 {serverOnline === null
                   ? 'Checking...'
                   : serverOnline
-                  ? 'Engine Online'
-                  : 'Engine Offline'}
+                  ? 'API Online'
+                  : 'API Offline'}
               </span>
               <span className="engine-sub">
                 {serverOnline
-                  ? 'Deterministic + Gemini'
+                  ? 'Health endpoint reachable'
                   : 'Start backend on :4000'}
               </span>
             </div>
@@ -199,12 +199,6 @@ export default function App() {
                 Backend offline — run <code style={{ fontFamily: 'monospace', marginLeft: 4 }}>npm run dev</code>
               </div>
             )}
-            <div
-              className="account-avatar"
-              title="Account"
-            >
-              S
-            </div>
           </div>
         </header>
 

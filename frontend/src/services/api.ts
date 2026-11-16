@@ -228,9 +228,7 @@ export interface ManagerDashboardData {
     failures: number;
     retries: number;
     leadsProcessed: number;
-    averageLatencyMs: number;
-    totalTokensUsed: number;
-    estimatedAiCostUSD: number;
+    averageLatencyMs: number | null;
   };
 }
 
@@ -244,7 +242,6 @@ export interface IcpProfileData {
   targetCountries: string[];
   targetRoles: string[];
   requiredTechnologies: string[];
-  minScoreThreshold: number;
   isActive: boolean;
 }
 

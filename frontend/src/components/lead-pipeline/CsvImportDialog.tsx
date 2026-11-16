@@ -9,7 +9,7 @@ type Props = {
   onImport: () => void;
 };
 
-const SAMPLE = 'Company Name,Domain,Industry,Employees,Country,Role,Contact Name,Email\nAcme Cloud,acmecloud.io,B2B SaaS,180,United States,CFO,Jordan Lee,jordan@acmecloud.io';
+const CSV_HEADER = 'Company Name,Domain,Industry,Employees,Country,Role,Contact Name,Email';
 
 export default function CsvImportDialog({ value, busy, onChange, onClose, onImport }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -41,7 +41,7 @@ export default function CsvImportDialog({ value, busy, onChange, onClose, onImpo
             id="li-csv-input"
             value={value}
             onChange={(event) => onChange(event.target.value)}
-            placeholder={SAMPLE}
+            placeholder={CSV_HEADER}
             rows={9}
             spellCheck={false}
             disabled={busy}

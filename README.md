@@ -84,6 +84,7 @@ frontend/
   vite.config.ts                 Vite + React + Tailwind integration
 
 backend/
+  README.md                      Backend folder and service reference
   src/server.ts                  Express setup, database bootstrap, worker lifecycle and shutdown
   src/routes/index.ts            Health route and route mounting
   src/routes/leadflowRoutes.ts   HTTP endpoints and request/response orchestration

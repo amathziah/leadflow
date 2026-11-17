@@ -14,7 +14,7 @@
     "evals": "tsx evals/run.ts",
     "test": "tsx evals/run.ts",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx src/testPipeline.ts"
+    "smoke": "tsx scripts/testPipeline.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.11.0",

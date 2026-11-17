@@ -2,12 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { env } from './config/env.js';
-import logger from './utils/logger.js';
-import { requestLogger } from './middleware/requestLogger.js';
-import { errorHandler } from './middleware/errorHandler.js';
+import logger from './shared/logger.js';
+import { requestLogger } from './http/middleware/requestLogger.js';
+import { errorHandler } from './http/middleware/errorHandler.js';
 import { connectDatabase, disconnectDatabase } from './db/prisma.js';
 import path from 'path';
-import apiRouter from './routes/index.js';
+import apiRouter from './http/routes/index.js';
 
 const app = express();
 
@@ -56,11 +56,11 @@ const bootstrap = async () => {
     await connectDatabase();
 
     // Initialize Default Context & Seed Profile if needed
-    const { getOrCreateDefaultContext } = await import('./services/seedService.js');
+    const { getOrCreateDefaultContext } = await import('./modules/workspaces/seedService.js');
     await getOrCreateDefaultContext();
 
     // Start Asynchronous Queue Worker
-    const { QueueService } = await import('./services/queueService.js');
+    const { QueueService } = await import('./modules/jobs/queueService.js');
     QueueService.startWorker();
 
     const port = env.PORT;
@@ -86,7 +86,7 @@ process.on('unhandledRejection', (reason) => {
 
 const gracefulShutdown = async (exitCode = 0) => {
   logger.info('🔌 Initiating graceful shutdown...');
-  const { QueueService } = await import('./services/queueService.js');
+  const { QueueService } = await import('./modules/jobs/queueService.js');
   QueueService.stopWorker();
   if (server) server.close(() => logger.info('HTTP server closed.'));
   await disconnectDatabase();

@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import logger from '../utils/logger.js';
+import logger from '../shared/logger.js';
 import { env } from '../config/env.js';
 
 // Extend global type to prevent multiple Prisma client instances during hot reloading in dev

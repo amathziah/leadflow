@@ -86,14 +86,13 @@ frontend/
 backend/
   README.md                      Backend folder and service reference
   src/server.ts                  Express setup, database bootstrap, worker lifecycle and shutdown
-  src/routes/index.ts            Health route and route mounting
-  src/routes/leadflowRoutes.ts   HTTP endpoints and request/response orchestration
-  src/services/                  Import, ICP, qualification, enrichment, scoring, review, etc.
-  src/services/ai/                Gemini client and research agent
+  src/http/routes/               HTTP endpoints and request/response orchestration
+  src/http/middleware/           Request logging and centralized error handling
+  src/modules/                   Domain modules for companies, leads, outreach, jobs, and more
+  src/integrations/              Browser and optional storage adapters
   src/db/prisma.ts               Prisma connection lifecycle
   src/config/env.ts              Environment parsing and validation with Zod
-  src/middleware/                Request logging and centralized error handling
-  src/browser/                   Browser setup and visual grounding utilities
+  src/shared/                    Shared logger and application errors
   prisma/schema.prisma           PostgreSQL schema, enums and relations
   evals/                          Deterministic and model-assisted evaluation harnesses
   scripts/                        Manual AI/browser diagnostics
@@ -131,7 +130,7 @@ Routes validate and shape HTTP input, then delegate domain work to services. The
 | `enrichmentService` | Enrich company profile fields and record provenance/confidence |
 | `signalEngine` | Detect and persist company buying signals |
 | `scoringService` | Calculate and persist versioned, itemized lead scores |
-| `ai/researchAgentService` | Gather profile, signal, history and model-assisted company research; validate dossier output |
+| `researchAgentService` | Gather profile, signal, history and model-assisted company research; validate dossier output |
 | `personalizationService` | Generate an outreach draft and retain generation provenance/fallback details |
 | `reviewService` / `emailService` | Enforce approval state and deliver via SMTP |
 | `responseAnalysisService` | Classify a submitted reply, update lead state/memory and rescore |
@@ -188,7 +187,7 @@ Outreach states are represented by the `OutreachState` enum: `DRAFT`, `REVIEW`, 
 
 ## HTTP API
 
-The API is mounted under `/api`. `routes/index.ts` mounts the LeadFlow router both at `/api` and `/api/leadflow` for compatibility, so the paths below also work with the `/leadflow` prefix. Successful responses generally use `{ success: true, data }`.
+The API is mounted under `/api`. `backend/src/http/routes/index.ts` mounts the LeadFlow router both at `/api` and `/api/leadflow` for compatibility, so the paths below also work with the `/leadflow` prefix. Successful responses generally use `{ success: true, data }`.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -222,7 +221,7 @@ The API is mounted under `/api`. `routes/index.ts` mounts the LeadFlow router bo
 - **Persistence:** PostgreSQL 16 and Prisma 5.
 - **AI:** Google Generative AI SDK for Gemini. Fast/deep model names are environment-overridable. AI-dependent services retain provenance and may use deterministic fallback behavior.
 - **Email:** Nodemailer using any compatible SMTP service (Gmail app password, SES, SendGrid, Mailgun, Postmark, or another relay).
-- **Browser utilities:** Playwright-based helpers exist under `backend/src/browser`; they are not a continuously running browser automation platform.
+- **Browser utilities:** Playwright-based helpers exist under `backend/src/integrations/browser`; they are not a continuously running browser automation platform.
 - **Optional storage:** Supabase configuration is for screenshot/log storage; without it screenshots can be stored locally.
 - **Queue:** PostgreSQL-backed in-process polling worker. No Redis or external queue broker is required.
 

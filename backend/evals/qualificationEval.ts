@@ -1,4 +1,4 @@
-import { QualificationService } from '../src/services/qualificationService.js';
+import { QualificationService } from '../src/modules/leads/qualificationService.js';
 import { EVAL_ICP, QUALIFICATION_CASES, type QualificationCase } from './datasets/qualification.js';
 import {
   classificationMetrics,

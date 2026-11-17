@@ -1,6 +1,6 @@
-import browserService from '../src/browser/browserService.js';
+import browserService from '../src/integrations/browser/browserService.js';
 import { env } from '../src/config/env.js';
-import logger from '../src/utils/logger.js';
+import logger from '../src/shared/logger.js';
 
 // Keep reference to original fetch
 const originalFetch = globalThis.fetch;

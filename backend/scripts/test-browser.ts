@@ -1,5 +1,5 @@
-import browserService from '../src/browser/browserService.js';
-import logger from '../src/utils/logger.js';
+import browserService from '../src/integrations/browser/browserService.js';
+import logger from '../src/shared/logger.js';
 
 async function testBrowserService() {
   try {

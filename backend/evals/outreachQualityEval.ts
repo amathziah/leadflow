@@ -1,6 +1,6 @@
 import { prisma } from '../src/db/prisma.js';
-import { PersonalizationService } from '../src/services/personalizationService.js';
-import { hasUsableGeminiKey } from '../src/services/ai/llmClient.js';
+import { PersonalizationService } from '../src/modules/outreach/personalizationService.js';
+import { hasUsableGeminiKey } from '../src/modules/research/llmClient.js';
 import { inspectOutreach } from './lib/outreachQuality.js';
 import { mean } from './lib/metrics.js';
 

@@ -4,9 +4,9 @@ This file is a map for studying the LeadFlow backend. The main application path 
 
 ```text
 src/server.ts
-  → src/routes/index.ts
-  → src/routes/leadflowRoutes.ts
-  → src/services/*
+  → src/http/routes/index.ts
+  → src/http/routes/leadflowRoutes.ts
+  → src/modules/*
   → src/db/prisma.ts
   → PostgreSQL (schema in prisma/schema.prisma)
 ```
@@ -18,18 +18,24 @@ Some work is sent to the database-backed queue and handled by a polling worker i
 | Path | What it contains |
 | --- | --- |
 | `src/server.ts` | Express app setup, middleware registration, startup, queue startup, health endpoint, and graceful shutdown. |
-| `src/routes/` | HTTP endpoints. Routes parse request data, call services, and return JSON responses. |
-| `src/services/` | Business logic for importing, qualification, enrichment, scoring, outreach, replies, analytics, and background jobs. |
-| `src/services/ai/` | Gemini client configuration and research synthesis. |
+| `src/http/routes/` | HTTP endpoints. Routes parse request data, call services, and return JSON responses. |
+| `src/modules/` | Business logic grouped by domain: companies, ICP, leads, outreach, replies, research, analytics, jobs, and workspaces. |
+| `src/integrations/` | Browser automation and optional external storage adapters. |
+| `src/modules/companies/` | Company discovery, enrichment, and market signals. |
+| `src/modules/leads/` | Qualification, scoring, and lead memory. |
+| `src/modules/outreach/` | Draft generation, review, and email delivery. |
+| `src/modules/research/` | Gemini client configuration and research synthesis. |
+| `src/modules/jobs/` | Persistent queue and pipeline worker. |
+| `src/modules/` (other domains) | ICP, replies, analytics, and workspace setup. |
 | `src/db/` | Prisma client creation and database connect/disconnect helpers. |
 | `src/config/` | Environment loading and Zod validation. |
-| `src/middleware/` | Request logging and centralized error response handling. |
-| `src/utils/` | Shared logger and application error classes. |
-| `src/browser/` | Playwright browser utilities and visual element grounding. These are supporting utilities, not the main lead pipeline. |
+| `src/http/middleware/` | Request logging and centralized error response handling. |
+| `src/shared/` | Shared logger and application error classes. |
+| `src/integrations/browser/` | Playwright browser utilities and visual element grounding. These are supporting utilities, not the main lead pipeline. |
 | `prisma/schema.prisma` | PostgreSQL models, enums, relations, indexes, and generated Prisma client configuration. |
 | `evals/` | Deterministic ICP regression evaluation and model-assisted outreach evaluation. |
 | `scripts/` | Manual diagnostics for AI and browser integrations. |
-| `src/testPipeline.ts` | End-to-end pipeline smoke script; needs a configured backend environment. |
+| `scripts/testPipeline.ts` | End-to-end pipeline smoke script; needs a configured backend environment. |
 
 ## Startup and shared infrastructure
 
@@ -123,11 +129,11 @@ The Tier 1 qualification evaluation needs no database, network, or model key. Ti
 ## Suggested code-reading order
 
 1. `src/server.ts` — understand startup.
-2. `src/routes/leadflowRoutes.ts` — see how HTTP requests enter services.
-3. `src/services/discoveryService.ts` and `qualificationService.ts` — understand ingestion and ICP rules.
-4. `src/services/queueService.ts` — follow the asynchronous pipeline and trace.
-5. `src/services/scoringService.ts`, `ai/researchAgentService.ts`, and `personalizationService.ts` — see scoring and model-assisted stages.
-6. `src/services/reviewService.ts`, `emailService.ts`, and `responseAnalysisService.ts` — follow approval, delivery, and reply handling.
+2. `src/http/routes/leadflowRoutes.ts` — see how HTTP requests enter domain modules.
+3. `src/modules/companies/discoveryService.ts` and `src/modules/leads/qualificationService.ts` — understand ingestion and ICP rules.
+4. `src/modules/jobs/queueService.ts` — follow the asynchronous pipeline and trace.
+5. `src/modules/leads/scoringService.ts`, `src/modules/research/researchAgentService.ts`, and `src/modules/outreach/personalizationService.ts` — see scoring and model-assisted stages.
+6. `src/modules/outreach/reviewService.ts`, `src/modules/outreach/emailService.ts`, and `src/modules/replies/responseAnalysisService.ts` — follow approval, delivery, and reply handling.
 7. `prisma/schema.prisma` — connect service records to database tables.
 
 ## Important boundaries to remember
